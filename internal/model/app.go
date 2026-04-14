@@ -250,6 +250,15 @@ func (a *App) refreshData() {
 	}
 	a.sessionList.SetSessions(sessions)
 
+	// Populate agent lookup on the session list for enriched rendering.
+	a.sessionList.ClearAgents()
+	for _, sess := range sessions {
+		agents := a.store.AgentsForSession(sess.SessionID)
+		if len(agents) > 0 {
+			a.sessionList.SetAgentsForSession(sess.SessionID, agents)
+		}
+	}
+
 	// Update agents and tasks for selected session.
 	a.syncSelectedSession()
 
@@ -314,8 +323,8 @@ func (a App) View() string {
 		a.activePanel == PanelSessions)
 	sections = append(sections, sessionTitle)
 
-	// Enrich session rows with agent info.
-	sessionView := a.renderSessionListWithAgents()
+	// Enrich session rows with agent info — delegated to SessionList.
+	sessionView := a.sessionList.View(a.activePanel == PanelSessions)
 	sections = append(sections, sessionView)
 
 	// Agents panel.
@@ -358,80 +367,6 @@ func (a App) View() string {
 	}
 
 	return content
-}
-
-// renderSessionListWithAgents renders the session list with agent count info
-// enriched from the store.
-func (a App) renderSessionListWithAgents() string {
-	sessions := a.sessionList.sessions
-	if len(sessions) == 0 {
-		return ui.MutedStyle.Render("  No sessions found")
-	}
-
-	var b strings.Builder
-
-	// Header.
-	header := fmt.Sprintf("  %-6s %-22s %-10s %-9s %-14s",
-		"PID", "Project", "Kind", "Uptime", "Agents")
-	b.WriteString(ui.HeaderStyle.Render(header))
-	b.WriteByte('\n')
-
-	focused := a.activePanel == PanelSessions
-
-	for i, sess := range sessions {
-		isSelected := i == a.sessionList.cursor && focused
-
-		// PID with alive color.
-		pidStr := fmt.Sprintf("%d", sess.PID)
-
-		// Agent count for this session.
-		agents := a.store.AgentsForSession(sess.SessionID)
-		agentInfo := AgentSummary(agents)
-
-		// Truncate project name.
-		project := sess.Project
-		if len(project) > 20 {
-			project = project[:17] + "..."
-		}
-
-		// Truncate kind.
-		kind := sess.Kind
-		if len(kind) > 8 {
-			kind = kind[:8]
-		}
-
-		// Recalculate uptime.
-		uptime := sess.Uptime
-		if !sess.StartTime.IsZero() {
-			uptime = data.FormatUptime(time.Since(sess.StartTime))
-		}
-
-		cursor := "  "
-		if isSelected {
-			cursor = ui.CursorStyle.Render("▸ ")
-		}
-
-		// Color PID based on alive status.
-		if sess.Alive {
-			pidStr = ui.AliveStyle.Render(fmt.Sprintf("%-6s", pidStr))
-		} else {
-			pidStr = ui.DeadStyle.Render(fmt.Sprintf("%-6s", pidStr))
-		}
-
-		row := fmt.Sprintf("%s%s %-22s %-10s %-9s %s",
-			cursor, pidStr, project, kind, uptime, agentInfo)
-
-		if isSelected {
-			row = ui.SelectedRowStyle.Render(row)
-		}
-
-		b.WriteString(row)
-		if i < len(sessions)-1 {
-			b.WriteByte('\n')
-		}
-	}
-
-	return b.String()
 }
 
 // panelTitle creates a section title with active indicator.

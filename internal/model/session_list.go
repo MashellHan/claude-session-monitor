@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/MashellHan/claude-session-monitor/internal/data"
 	"github.com/MashellHan/claude-session-monitor/internal/ui"
@@ -12,15 +13,19 @@ import (
 // SessionList renders the list of Claude sessions.
 type SessionList struct {
 	sessions []data.Session
-	cursor   int
-	height   int
-	width    int
-	offset   int // scroll offset for viewport
+	// agentsBySession maps sessionID to agents for enriched rendering.
+	agentsBySession map[string][]data.Agent
+	cursor          int
+	height          int
+	width           int
+	offset          int // scroll offset for viewport
 }
 
 // NewSessionList creates a new SessionList.
 func NewSessionList() SessionList {
-	return SessionList{}
+	return SessionList{
+		agentsBySession: make(map[string][]data.Agent),
+	}
 }
 
 // SetSessions updates the sessions to display.
@@ -32,6 +37,17 @@ func (sl *SessionList) SetSessions(sessions []data.Session) {
 	if sl.cursor < 0 {
 		sl.cursor = 0
 	}
+}
+
+// SetAgentsForSession stores the agent list for a given session, used to
+// enrich the session row with agent count and status info.
+func (sl *SessionList) SetAgentsForSession(sessionID string, agents []data.Agent) {
+	sl.agentsBySession[sessionID] = agents
+}
+
+// ClearAgents resets the agent lookup map for a fresh data cycle.
+func (sl *SessionList) ClearAgents() {
+	sl.agentsBySession = make(map[string][]data.Agent)
 }
 
 // SetSize updates the viewport dimensions.
@@ -79,7 +95,7 @@ func (sl *SessionList) SelectedSession() (data.Session, bool) {
 	return data.Session{}, false
 }
 
-// View renders the session list.
+// View renders the session list with agent info and proper scroll offset.
 func (sl *SessionList) View(focused bool) string {
 	if len(sl.sessions) == 0 {
 		return ui.MutedStyle.Render("  No sessions found")
@@ -93,7 +109,7 @@ func (sl *SessionList) View(focused bool) string {
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
-	// Data rows.
+	// Data rows — respect scroll offset.
 	visibleRows := sl.visibleRows()
 	endIdx := sl.offset + visibleRows
 	if endIdx > len(sl.sessions) {
@@ -104,13 +120,12 @@ func (sl *SessionList) View(focused bool) string {
 		sess := sl.sessions[i]
 		isSelected := i == sl.cursor && focused
 
-		// Format PID with alive indicator.
+		// PID string.
 		pidStr := fmt.Sprintf("%d", sess.PID)
-		if sess.Alive {
-			pidStr = ui.AliveStyle.Render(pidStr)
-		} else {
-			pidStr = ui.DeadStyle.Render(pidStr)
-		}
+
+		// Agent count for this session.
+		agents := sl.agentsBySession[sess.SessionID]
+		agentInfo := AgentSummary(agents)
 
 		// Truncate project name.
 		project := sess.Project
@@ -124,16 +139,26 @@ func (sl *SessionList) View(focused bool) string {
 			kind = kind[:8]
 		}
 
-		// Agent count placeholder (will be enriched by app model).
-		agentInfo := ""
+		// Recalculate uptime if StartTime is available.
+		uptime := sess.Uptime
+		if !sess.StartTime.IsZero() {
+			uptime = data.FormatUptime(time.Since(sess.StartTime))
+		}
 
 		cursor := "  "
 		if isSelected {
 			cursor = ui.CursorStyle.Render("▸ ")
 		}
 
-		row := fmt.Sprintf("%s%-6s %-22s %-10s %-9s %s",
-			cursor, pidStr, project, kind, sess.Uptime, agentInfo)
+		// Color PID based on alive status.
+		if sess.Alive {
+			pidStr = ui.AliveStyle.Render(fmt.Sprintf("%-6s", pidStr))
+		} else {
+			pidStr = ui.DeadStyle.Render(fmt.Sprintf("%-6s", pidStr))
+		}
+
+		row := fmt.Sprintf("%s%s %-22s %-10s %-9s %s",
+			cursor, pidStr, project, kind, uptime, agentInfo)
 
 		if isSelected {
 			row = ui.SelectedRowStyle.Render(row)
@@ -145,13 +170,14 @@ func (sl *SessionList) View(focused bool) string {
 		}
 	}
 
-	// Truncate to width if needed.
+	// Truncate to width if needed using ANSI-aware truncation.
 	result := b.String()
 	if sl.width > 0 {
+		truncStyle := lipgloss.NewStyle().MaxWidth(sl.width)
 		lines := strings.Split(result, "\n")
 		for i, line := range lines {
 			if lipgloss.Width(line) > sl.width {
-				lines[i] = line[:sl.width]
+				lines[i] = truncStyle.Render(line)
 			}
 		}
 		result = strings.Join(lines, "\n")
