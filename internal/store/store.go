@@ -193,6 +193,26 @@ func (s *Store) Stats() data.Stats {
 		if sess.Alive {
 			stats.ActiveSessions++
 		}
+		// Accumulate session-level tokens.
+		stats.TotalTokensIn += sess.Tokens.InputTokens
+		stats.TotalTokensOut += sess.Tokens.OutputTokens
+		stats.TotalCacheCreation += sess.Tokens.CacheCreationTokens
+		stats.TotalCacheRead += sess.Tokens.CacheReadTokens
+		stats.TotalTokensAll += sess.Tokens.Total()
+	}
+
+	// If session-level tokens are 0, fall back to agent-level aggregation.
+	if stats.TotalTokensAll == 0 {
+		for _, agents := range s.agents {
+			for _, a := range agents {
+				stats.TotalTokensIn += a.Tokens.InputTokens
+				stats.TotalTokensOut += a.Tokens.OutputTokens
+				stats.TotalCacheCreation += a.Tokens.CacheCreationTokens
+				stats.TotalCacheRead += a.Tokens.CacheReadTokens
+			}
+		}
+		stats.TotalTokensAll = stats.TotalTokensIn + stats.TotalTokensOut +
+			stats.TotalCacheCreation + stats.TotalCacheRead
 	}
 
 	for _, agents := range s.agents {
@@ -206,10 +226,6 @@ func (s *Store) Stats() data.Stats {
 			case data.StatusDone:
 				stats.DoneAgents++
 			}
-			stats.TotalTokensIn += a.Tokens.InputTokens
-			stats.TotalTokensOut += a.Tokens.OutputTokens
-			stats.TotalCacheCreation += a.Tokens.CacheCreationTokens
-			stats.TotalCacheRead += a.Tokens.CacheReadTokens
 		}
 	}
 

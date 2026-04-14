@@ -104,8 +104,8 @@ func (sl *SessionList) View(focused bool) string {
 	var b strings.Builder
 
 	// Header row.
-	header := fmt.Sprintf("  %-6s %-22s %-10s %-9s %-14s",
-		"PID", "Project", "Kind", "Uptime", "Agents")
+	header := fmt.Sprintf("  %-6s %-16s %-40s %-10s %-9s %-7s %-6s",
+		"PID", "Project", "Topic", "Branch", "Uptime", "Tokens", "Agts")
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
@@ -125,19 +125,33 @@ func (sl *SessionList) View(focused bool) string {
 
 		// Agent count for this session.
 		agents := sl.agentsBySession[sess.SessionID]
-		agentInfo := AgentSummary(agents)
+		agentInfo := AgentCountSummary(agents)
 
 		// Truncate project name.
 		project := sess.Project
-		if len(project) > 20 {
-			project = project[:17] + "..."
+		if len(project) > 14 {
+			project = project[:11] + "..."
 		}
 
-		// Truncate kind.
-		kind := sess.Kind
-		if len(kind) > 8 {
-			kind = kind[:8]
+		// Topic — truncate based on available width.
+		topic := sess.Topic
+		maxTopicLen := 38
+		if sl.width > 140 {
+			maxTopicLen = 50
 		}
+		if len([]rune(topic)) > maxTopicLen {
+			runes := []rune(topic)
+			topic = string(runes[:maxTopicLen-3]) + "..."
+		}
+
+		// Branch.
+		branch := sess.GitBranch
+		if len(branch) > 8 {
+			branch = branch[:8]
+		}
+
+		// Token usage.
+		tokens := sess.Tokens.Formatted()
 
 		// Recalculate uptime if StartTime is available.
 		uptime := sess.Uptime
@@ -157,8 +171,8 @@ func (sl *SessionList) View(focused bool) string {
 			pidStr = ui.DeadStyle.Render(fmt.Sprintf("%-6s", pidStr))
 		}
 
-		row := fmt.Sprintf("%s%s %-22s %-10s %-9s %s",
-			cursor, pidStr, project, kind, uptime, agentInfo)
+		row := fmt.Sprintf("%s%s %-16s %-40s %-10s %-9s %-7s %s",
+			cursor, pidStr, project, topic, branch, uptime, tokens, agentInfo)
 
 		if isSelected {
 			row = ui.SelectedRowStyle.Render(row)

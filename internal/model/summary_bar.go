@@ -34,16 +34,17 @@ func (sb *SummaryBar) View() string {
 
 	sessInfo := fmt.Sprintf("%d sessions", s.ActiveSessions)
 
+	// Compact agent status: 122 agents (2● 4◐ 116✓)
 	agentInfo := fmt.Sprintf("%d agents", s.TotalAgents)
 	if s.TotalAgents > 0 {
-		agentInfo = fmt.Sprintf("%d agents (%d running, %d idle, %d done)",
+		agentInfo = fmt.Sprintf("%d agents (%d● %d◐ %d✓)",
 			s.TotalAgents, s.RunningAgents, s.IdleAgents, s.DoneAgents)
 	}
 
+	// Total tokens from all sessions.
 	tokenInfo := ""
-	totalTokens := s.TotalTokensIn + s.TotalTokensOut
-	if totalTokens > 0 {
-		tokenInfo = fmt.Sprintf(" │ %s tokens", data.FormatTokens(totalTokens))
+	if s.TotalTokensAll > 0 {
+		tokenInfo = fmt.Sprintf(" │ %s tokens", data.FormatTokenCount(s.TotalTokensAll))
 	}
 
 	taskInfo := ""
@@ -51,7 +52,7 @@ func (sb *SummaryBar) View() string {
 		taskInfo = fmt.Sprintf(" │ %d tasks", s.TotalTasks)
 	}
 
-	helpHints := " │ ↑↓ nav │ enter expand │ tab panel │ q quit │ ? help"
+	helpHints := " │ ↑↓ nav │ enter expand │ tab panel │ q quit"
 
 	content := fmt.Sprintf(" %s │ %s%s%s%s",
 		sessInfo, agentInfo, tokenInfo, taskInfo, helpHints)

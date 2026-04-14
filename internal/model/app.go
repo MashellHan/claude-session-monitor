@@ -213,11 +213,13 @@ func (a *App) syncSelectedSession() {
 	sess, ok := a.sessionList.SelectedSession()
 	if !ok {
 		a.agentTable.SetAgents(nil)
+		a.agentTable.SetSessionContext(0, "")
 		a.taskList.SetTasks(nil)
 		return
 	}
 	agents := a.store.AgentsForSession(sess.SessionID)
 	a.agentTable.SetAgents(agents)
+	a.agentTable.SetSessionContext(sess.PID, sess.Topic)
 
 	tasks := a.store.TasksForSession(sess.SessionID)
 	a.taskList.SetTasks(tasks)
@@ -332,8 +334,12 @@ func (a App) View() string {
 	agentTitle := ""
 	if hasSelected {
 		agents := a.store.AgentsForSession(sess.SessionID)
+		topicLabel := sess.Topic
+		if topicLabel == "" {
+			topicLabel = sess.Project
+		}
 		agentTitle = panelTitle("Subagents",
-			fmt.Sprintf("Session %d (%d agents)", sess.PID, len(agents)),
+			fmt.Sprintf("PID %d: \"%s\" (%d agents)", sess.PID, topicLabel, len(agents)),
 			a.activePanel == PanelAgents)
 	} else {
 		agentTitle = panelTitle("Subagents", "no session selected",

@@ -87,6 +87,21 @@ func (s *Scanner) FullScan() (*ScanResult, error) {
 		// Resolve project name.
 		sess.Project = s.resolveProjectName(sess.CWD)
 
+		// v1.1: Discover session JSONL and extract topic, branch, tokens, message count.
+		jsonlPath := filepath.Join(s.claudeDir, "projects", sess.PathHash, sess.SessionID+".jsonl")
+		if info, err := os.Stat(jsonlPath); err == nil {
+			sess.JSONLPath = jsonlPath
+			sess.JSONLSize = info.Size()
+
+			topic, topicFull := ParseSessionTopic(jsonlPath)
+			sess.Topic = topic
+			sess.TopicFull = topicFull
+
+			sess.GitBranch = ParseGitBranch(jsonlPath)
+			sess.MessageCount = ParseMessageCount(jsonlPath)
+			sess.Tokens = ParseSessionTokens(jsonlPath)
+		}
+
 		result.Sessions = append(result.Sessions, sess)
 
 		// Step 4: Load tasks and agents for all sessions (not just alive ones,
@@ -181,9 +196,21 @@ func (s *Scanner) buildAgent(id, sessionID, agentsDir string) Agent {
 	// Parse JSONL tail for tokens, model, and tool calls.
 	if usage, model, calls, err := ParseJSONLTail(agent.JSONLPath, maxJSONLTailBytes); err == nil {
 		agent.Tokens = usage
-		agent.Model = model
+		agent.ModelFull = model
+		agent.Model = modelShortName(model)
 		agent.ToolCalls = calls
 	}
+
+	// v1.1: Parse full model info, tool call summary, and final output.
+	if shortModel, fullModel := ParseAgentModel(agent.JSONLPath); fullModel != "" {
+		agent.Model = shortModel
+		agent.ModelFull = fullModel
+	}
+	if toolMap, toolTotal := ParseAgentToolCallSummary(agent.JSONLPath); toolMap != nil {
+		agent.ToolCallMap = toolMap
+		agent.ToolCallTotal = toolTotal
+	}
+	agent.FinalOutput = ParseAgentFinalOutput(agent.JSONLPath)
 
 	// Approximate last active time from JSONL file mtime.
 	// Note: this is the time of the last JSONL write, not the agent's start time.

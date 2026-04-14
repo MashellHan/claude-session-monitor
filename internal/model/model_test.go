@@ -249,7 +249,7 @@ func TestAgentTable_View_WithExpansion(t *testing.T) {
 	at.ToggleDetail()
 
 	view := at.View(true)
-	if !strings.Contains(view, "Agent ID: a1") {
+	if !strings.Contains(view, "Agent ID:") || !strings.Contains(view, "a1") {
 		t.Error("expanded view should contain agent ID")
 	}
 	if !strings.Contains(view, "claude-haiku") {
@@ -285,6 +285,81 @@ func TestAgentSummary_AllDone(t *testing.T) {
 	result := AgentSummary(agents)
 	if !strings.Contains(result, "done") {
 		t.Errorf("summary = %q, should contain 'done'", result)
+	}
+}
+
+// --- AgentCountSummary Tests ---
+
+func TestAgentCountSummary_Empty(t *testing.T) {
+	result := AgentCountSummary(nil)
+	if !strings.Contains(result, "0") {
+		t.Errorf("empty summary = %q, should contain '0'", result)
+	}
+}
+
+func TestAgentCountSummary_Running(t *testing.T) {
+	agents := []data.Agent{
+		{Status: data.StatusRunning},
+		{Status: data.StatusDone},
+		{Status: data.StatusDone},
+	}
+	result := AgentCountSummary(agents)
+	if !strings.Contains(result, "3") {
+		t.Errorf("summary = %q, should contain '3'", result)
+	}
+	if !strings.Contains(result, "●1") {
+		t.Errorf("summary = %q, should contain '●1'", result)
+	}
+}
+
+func TestAgentCountSummary_NoneRunning(t *testing.T) {
+	agents := []data.Agent{
+		{Status: data.StatusDone},
+		{Status: data.StatusDone},
+	}
+	result := AgentCountSummary(agents)
+	if !strings.Contains(result, "2") {
+		t.Errorf("summary = %q, should contain '2'", result)
+	}
+}
+
+// --- formatToolCallSummary Tests ---
+
+func TestFormatToolCallSummary(t *testing.T) {
+	toolMap := map[string]int{
+		"Grep": 4,
+		"Read": 3,
+		"Glob": 3,
+		"Bash": 2,
+	}
+	result := formatToolCallSummary(toolMap, 12)
+	if !strings.Contains(result, "12 total") {
+		t.Errorf("result = %q, should contain '12 total'", result)
+	}
+	if !strings.Contains(result, "Grep: 4") {
+		t.Errorf("result = %q, should contain 'Grep: 4'", result)
+	}
+}
+
+// --- formatTokenComma Tests ---
+
+func TestFormatTokenComma(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1,000"},
+		{6234, "6,234"},
+		{1000000, "1,000,000"},
+	}
+
+	for _, tt := range tests {
+		got := formatTokenComma(tt.n)
+		if got != tt.want {
+			t.Errorf("formatTokenComma(%d) = %q, want %q", tt.n, got, tt.want)
+		}
 	}
 }
 
@@ -376,6 +451,7 @@ func TestSummaryBar_View(t *testing.T) {
 		TotalTasks:     8,
 		TotalTokensIn:  45000,
 		TotalTokensOut: 12000,
+		TotalTokensAll: 57000,
 	})
 
 	view := sb.View()

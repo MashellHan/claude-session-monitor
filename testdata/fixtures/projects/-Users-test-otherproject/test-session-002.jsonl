@@ -1,0 +1,2 @@
+{"parentUuid":null,"type":"user","message":{"role":"user","content":[{"type":"text","text":"Analyze the project structure and "},{"type":"text","text":"suggest improvements for the codebase"}]},"gitBranch":"main","cwd":"/Users/test/otherproject"}
+{"parentUuid":"p1","message":{"type":"message","role":"assistant","content":[{"type":"text","text":"I'll analyze the project structure now."}],"model":"claude-opus-4-20250514","usage":{"input_tokens":1000,"output_tokens":500,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}

@@ -3,6 +3,7 @@ package data
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -411,7 +412,7 @@ func TestFormatTokens(t *testing.T) {
 		{999, "999"},
 		{1000, "1.0K"},
 		{1500, "1.5K"},
-		{45200, "45.2K"},
+		{45200, "45K"},
 		{1000000, "1.0M"},
 		{2500000, "2.5M"},
 	}
@@ -517,8 +518,8 @@ func TestScanner_FullScan(t *testing.T) {
 		if agent.AgentType != "Explore" {
 			t.Errorf("AgentType = %q, want Explore", agent.AgentType)
 		}
-		if agent.Model != "claude-haiku-4-5-20251001" {
-			t.Errorf("Model = %q, want claude-haiku-4-5-20251001", agent.Model)
+		if agent.Model != "haiku" {
+			t.Errorf("Model = %q, want haiku", agent.Model)
 		}
 	}
 }
@@ -608,5 +609,352 @@ func TestSummarizeInput_Empty(t *testing.T) {
 	summary := summarizeInput(nil)
 	if summary != "" {
 		t.Errorf("summary = %q, want empty", summary)
+	}
+}
+
+// --- v1.1 New Parser Tests ---
+
+func TestFormatTokenCount(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{1, "1"},
+		{999, "999"},
+		{1000, "1.0K"},
+		{1500, "1.5K"},
+		{9999, "10.0K"},
+		{45200, "45K"},
+		{999999, "1000K"},
+		{1000000, "1.0M"},
+		{2500000, "2.5M"},
+		{29400000, "29M"},
+		{999999999, "1000M"},
+		{1000000000, "1.0B"},
+		{1200000000, "1.2B"},
+	}
+
+	for _, tt := range tests {
+		got := FormatTokenCount(tt.n)
+		if got != tt.want {
+			t.Errorf("FormatTokenCount(%d) = %q, want %q", tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestTokenUsage_Total(t *testing.T) {
+	usage := TokenUsage{
+		InputTokens:         1000,
+		OutputTokens:        500,
+		CacheCreationTokens: 200,
+		CacheReadTokens:     300,
+	}
+	if usage.Total() != 2000 {
+		t.Errorf("Total() = %d, want 2000", usage.Total())
+	}
+}
+
+func TestTokenUsage_Formatted(t *testing.T) {
+	usage := TokenUsage{
+		InputTokens:  200000,
+		OutputTokens: 45000,
+	}
+	got := usage.Formatted()
+	if got != "245K" {
+		t.Errorf("Formatted() = %q, want 245K", got)
+	}
+}
+
+func TestParseSessionTopic_StringContent(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl")
+
+	topic, topicFull := ParseSessionTopic(jsonlPath)
+	if topic == "" {
+		t.Fatal("topic should not be empty")
+	}
+	if topicFull == "" {
+		t.Fatal("topicFull should not be empty")
+	}
+	if !strings.Contains(topicFull, "Build a REST API server") {
+		t.Errorf("topicFull = %q, should contain 'Build a REST API server'", topicFull)
+	}
+	// Topic should be truncated to <= 60 chars.
+	if len([]rune(topic)) > 60 {
+		t.Errorf("topic length = %d, should be <= 60", len([]rune(topic)))
+	}
+}
+
+func TestParseSessionTopic_ArrayContent(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-otherproject", "test-session-002.jsonl")
+
+	topic, topicFull := ParseSessionTopic(jsonlPath)
+	if topic == "" {
+		t.Fatal("topic should not be empty")
+	}
+	if !strings.Contains(topicFull, "Analyze the project structure") {
+		t.Errorf("topicFull = %q, should contain 'Analyze the project structure'", topicFull)
+	}
+	if !strings.Contains(topicFull, "suggest improvements") {
+		t.Errorf("topicFull = %q, should contain 'suggest improvements'", topicFull)
+	}
+}
+
+func TestParseSessionTopic_MissingFile(t *testing.T) {
+	topic, topicFull := ParseSessionTopic("/nonexistent.jsonl")
+	if topic != "" || topicFull != "" {
+		t.Errorf("missing file should return empty, got topic=%q, topicFull=%q", topic, topicFull)
+	}
+}
+
+func TestParseGitBranch(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl")
+
+	branch := ParseGitBranch(jsonlPath)
+	if branch != "feature/api-server" {
+		t.Errorf("GitBranch = %q, want 'feature/api-server'", branch)
+	}
+}
+
+func TestParseGitBranch_Main(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-otherproject", "test-session-002.jsonl")
+
+	branch := ParseGitBranch(jsonlPath)
+	if branch != "main" {
+		t.Errorf("GitBranch = %q, want 'main'", branch)
+	}
+}
+
+func TestParseGitBranch_MissingFile(t *testing.T) {
+	branch := ParseGitBranch("/nonexistent.jsonl")
+	if branch != "" {
+		t.Errorf("missing file should return empty, got %q", branch)
+	}
+}
+
+func TestParseMessageCount(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl")
+
+	count := ParseMessageCount(jsonlPath)
+	// The fixture has 3 user messages.
+	if count != 3 {
+		t.Errorf("MessageCount = %d, want 3", count)
+	}
+}
+
+func TestParseMessageCount_SingleUser(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-otherproject", "test-session-002.jsonl")
+
+	count := ParseMessageCount(jsonlPath)
+	if count != 1 {
+		t.Errorf("MessageCount = %d, want 1", count)
+	}
+}
+
+func TestParseMessageCount_MissingFile(t *testing.T) {
+	count := ParseMessageCount("/nonexistent.jsonl")
+	if count != 0 {
+		t.Errorf("missing file should return 0, got %d", count)
+	}
+}
+
+func TestParseSessionTokens(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl")
+
+	usage := ParseSessionTokens(jsonlPath)
+	// 500 + 800 + 300 = 1600 input tokens
+	if usage.InputTokens != 1600 {
+		t.Errorf("InputTokens = %d, want 1600", usage.InputTokens)
+	}
+	// 200 + 400 + 150 = 750 output tokens
+	if usage.OutputTokens != 750 {
+		t.Errorf("OutputTokens = %d, want 750", usage.OutputTokens)
+	}
+	// 100 + 0 + 0 = 100 cache creation
+	if usage.CacheCreationTokens != 100 {
+		t.Errorf("CacheCreationTokens = %d, want 100", usage.CacheCreationTokens)
+	}
+	// 50 + 200 + 100 = 350 cache read
+	if usage.CacheReadTokens != 350 {
+		t.Errorf("CacheReadTokens = %d, want 350", usage.CacheReadTokens)
+	}
+}
+
+func TestParseSessionTokens_MissingFile(t *testing.T) {
+	usage := ParseSessionTokens("/nonexistent.jsonl")
+	if usage.Total() != 0 {
+		t.Errorf("missing file should return zero tokens, got %d", usage.Total())
+	}
+}
+
+func TestParseAgentModel(t *testing.T) {
+	dir := fixtureDir(t)
+
+	tests := []struct {
+		name      string
+		path      string
+		wantShort string
+		wantFull  string
+	}{
+		{
+			name:      "haiku agent",
+			path:      filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001", "subagents", "agent-abc123.jsonl"),
+			wantShort: "haiku",
+			wantFull:  "claude-haiku-4-5-20251001",
+		},
+		{
+			name:      "sonnet session",
+			path:      filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl"),
+			wantShort: "sonnet",
+			wantFull:  "claude-sonnet-4-20250514",
+		},
+		{
+			name:      "opus session",
+			path:      filepath.Join(dir, "projects", "-Users-test-otherproject", "test-session-002.jsonl"),
+			wantShort: "opus",
+			wantFull:  "claude-opus-4-20250514",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			short, full := ParseAgentModel(tt.path)
+			if short != tt.wantShort {
+				t.Errorf("short = %q, want %q", short, tt.wantShort)
+			}
+			if full != tt.wantFull {
+				t.Errorf("full = %q, want %q", full, tt.wantFull)
+			}
+		})
+	}
+}
+
+func TestParseAgentModel_MissingFile(t *testing.T) {
+	short, full := ParseAgentModel("/nonexistent.jsonl")
+	if short != "" || full != "" {
+		t.Errorf("missing file should return empty, got short=%q, full=%q", short, full)
+	}
+}
+
+func TestParseAgentToolCallSummary(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001", "subagents", "agent-abc123.jsonl")
+
+	toolMap, total := ParseAgentToolCallSummary(jsonlPath)
+	if toolMap == nil {
+		t.Fatal("toolMap should not be nil")
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if toolMap["Grep"] != 1 {
+		t.Errorf("Grep count = %d, want 1", toolMap["Grep"])
+	}
+	if toolMap["Read"] != 1 {
+		t.Errorf("Read count = %d, want 1", toolMap["Read"])
+	}
+	if toolMap["Glob"] != 1 {
+		t.Errorf("Glob count = %d, want 1", toolMap["Glob"])
+	}
+}
+
+func TestParseAgentToolCallSummary_MissingFile(t *testing.T) {
+	toolMap, total := ParseAgentToolCallSummary("/nonexistent.jsonl")
+	if toolMap != nil {
+		t.Errorf("missing file should return nil toolMap, got %v", toolMap)
+	}
+	if total != 0 {
+		t.Errorf("missing file should return 0 total, got %d", total)
+	}
+}
+
+func TestParseAgentFinalOutput(t *testing.T) {
+	dir := fixtureDir(t)
+
+	// Session JSONL with assistant text.
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject", "test-session-001.jsonl")
+	output := ParseAgentFinalOutput(jsonlPath)
+	if output == "" {
+		t.Error("final output should not be empty")
+	}
+	if !strings.Contains(output, "rate limiter") {
+		t.Errorf("final output = %q, should contain 'rate limiter'", output)
+	}
+}
+
+func TestParseAgentFinalOutput_MissingFile(t *testing.T) {
+	output := ParseAgentFinalOutput("/nonexistent.jsonl")
+	if output != "" {
+		t.Errorf("missing file should return empty, got %q", output)
+	}
+}
+
+func TestModelShortName(t *testing.T) {
+	tests := []struct {
+		full string
+		want string
+	}{
+		{"claude-sonnet-4-20250514", "sonnet"},
+		{"claude-haiku-4-5-20251001", "haiku"},
+		{"claude-opus-4-20250514", "opus"},
+		{"unknown-model", "unknown-model"},
+	}
+
+	for _, tt := range tests {
+		got := modelShortName(tt.full)
+		if got != tt.want {
+			t.Errorf("modelShortName(%q) = %q, want %q", tt.full, got, tt.want)
+		}
+	}
+}
+
+func TestTruncateString(t *testing.T) {
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 8, "hello..."},
+		{"", 5, ""},
+		{"ab", 2, "ab"},
+		{"abcde", 5, "abcde"},
+		{"abcdef", 5, "ab..."},
+	}
+
+	for _, tt := range tests {
+		got := truncateString(tt.input, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+		}
+	}
+}
+
+func TestExtractTextContent(t *testing.T) {
+	// String content.
+	stringContent := []byte(`"Hello world"`)
+	got := extractTextContent(stringContent)
+	if got != "Hello world" {
+		t.Errorf("string content = %q, want 'Hello world'", got)
+	}
+
+	// Array content.
+	arrayContent := []byte(`[{"type":"text","text":"Hello "},{"type":"text","text":"world"}]`)
+	got = extractTextContent(arrayContent)
+	if got != "Hello world" {
+		t.Errorf("array content = %q, want 'Hello world'", got)
+	}
+
+	// Empty.
+	got = extractTextContent(nil)
+	if got != "" {
+		t.Errorf("nil content = %q, want empty", got)
 	}
 }

@@ -51,13 +51,17 @@ func (dv *DetailView) View() string {
 	agent := dv.agent
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Agent ID: %s\n", agent.ID))
-	if agent.Model != "" {
-		b.WriteString(fmt.Sprintf("Model: %s\n", agent.Model))
+	b.WriteString(fmt.Sprintf("Agent ID:   %s\n", agent.ID))
+	if agent.ModelFull != "" {
+		b.WriteString(fmt.Sprintf("Model:      %s\n", agent.ModelFull))
+	} else if agent.Model != "" {
+		b.WriteString(fmt.Sprintf("Model:      %s\n", agent.Model))
 	}
-	b.WriteString(fmt.Sprintf("Tokens: %s in / %s out\n",
-		data.FormatTokens(agent.Tokens.InputTokens),
-		data.FormatTokens(agent.Tokens.OutputTokens)))
+	b.WriteString(fmt.Sprintf("Tokens:     In: %s  Out: %s  Cache Read: %s  Cache Create: %s\n",
+		data.FormatTokenCount(agent.Tokens.InputTokens),
+		data.FormatTokenCount(agent.Tokens.OutputTokens),
+		data.FormatTokenCount(agent.Tokens.CacheReadTokens),
+		data.FormatTokenCount(agent.Tokens.CacheCreationTokens)))
 
 	if len(agent.ToolCalls) > 0 {
 		b.WriteString("\nLatest activity:\n")
@@ -76,6 +80,10 @@ func (dv *DetailView) View() string {
 			}
 			b.WriteString(line + "\n")
 		}
+	}
+
+	if agent.FinalOutput != "" {
+		b.WriteString(fmt.Sprintf("\nFinal Output:\n  \"%s\"\n", agent.FinalOutput))
 	}
 
 	detailWidth := dv.width - 6

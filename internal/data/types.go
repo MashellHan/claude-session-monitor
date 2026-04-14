@@ -65,6 +65,16 @@ type Session struct {
 	Project    string    `json:"-"` // resolved project name
 	PathHash   string    `json:"-"` // CWD encoded as path hash
 	StartTime  time.Time `json:"-"` // parsed from StartedAt
+
+	// v1.1 fields — extracted from session JSONL.
+	Topic        string     `json:"-"` // first user message (truncated 60 chars)
+	TopicFull    string     `json:"-"` // first user message (full)
+	LastMessage  string     `json:"-"` // last user message (truncated)
+	GitBranch    string     `json:"-"` // from JSONL gitBranch field
+	MessageCount int        `json:"-"` // count of user messages
+	Tokens       TokenUsage `json:"-"` // session-level token totals
+	JSONLPath    string     `json:"-"` // path to session JSONL
+	JSONLSize    int64      `json:"-"` // file size for display
 }
 
 // Task holds metadata about a task, read from
@@ -88,10 +98,20 @@ type AgentMeta struct {
 
 // TokenUsage aggregates token counts from JSONL entries.
 type TokenUsage struct {
-	InputTokens          int64 `json:"input_tokens"`
-	OutputTokens         int64 `json:"output_tokens"`
-	CacheCreationTokens  int64 `json:"cache_creation_input_tokens"`
-	CacheReadTokens      int64 `json:"cache_read_input_tokens"`
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_input_tokens"`
+}
+
+// Total returns the sum of all token fields.
+func (t TokenUsage) Total() int64 {
+	return t.InputTokens + t.OutputTokens + t.CacheCreationTokens + t.CacheReadTokens
+}
+
+// Formatted returns a human-readable formatted total (e.g., "245K", "29.4M").
+func (t TokenUsage) Formatted() string {
+	return FormatTokenCount(t.Total())
 }
 
 // ToolCall represents a single tool invocation extracted from JSONL.
@@ -107,9 +127,13 @@ type Agent struct {
 	AgentType   string      // from meta.json
 	Description string      // from meta.json
 	Status      AgentStatus // computed from JSONL mtime
-	Model       string      // extracted from JSONL
+	Model       string      // short model name: "sonnet", "haiku", "opus"
+	ModelFull   string      // full model name: "claude-haiku-4-5-20251001"
 	Tokens      TokenUsage  // aggregated from JSONL
 	ToolCalls   []ToolCall  // latest tool calls (from tail of JSONL)
+	ToolCallMap   map[string]int // tool name → call count
+	ToolCallTotal int            // total tool calls
+	FinalOutput   string         // last 200 chars of agent's result
 	Elapsed       string      // human-readable time since last activity
 	JSONLPath     string      // path to .jsonl file for mtime checks
 	MetaPath      string      // path to .meta.json
@@ -141,4 +165,6 @@ type Stats struct {
 	TotalTokensOut     int64
 	TotalCacheCreation int64
 	TotalCacheRead     int64
+	// TotalTokensAll is the sum of all token types across all sessions.
+	TotalTokensAll int64
 }

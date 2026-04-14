@@ -2,6 +2,8 @@
 package data
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -313,12 +315,411 @@ func FormatUptime(d time.Duration) string {
 }
 
 // FormatTokens formats a token count with K/M suffixes.
+// Deprecated: Use FormatTokenCount instead.
 func FormatTokens(n int64) string {
+	return FormatTokenCount(n)
+}
+
+// FormatTokenCount formats a token count into a compact human-readable string.
+// 0 → "0", < 1000 → "999", < 1M → "245K", < 1B → "29.4M", ≥ 1B → "1.2B"
+func FormatTokenCount(n int64) string {
+	if n == 0 {
+		return "0"
+	}
 	if n < 1000 {
 		return fmt.Sprintf("%d", n)
 	}
 	if n < 1_000_000 {
-		return fmt.Sprintf("%.1fK", float64(n)/1000)
+		v := float64(n) / 1000
+		if v < 10 {
+			return fmt.Sprintf("%.1fK", v)
+		}
+		return fmt.Sprintf("%.0fK", v)
 	}
-	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	if n < 1_000_000_000 {
+		v := float64(n) / 1_000_000
+		if v < 10 {
+			return fmt.Sprintf("%.1fM", v)
+		}
+		return fmt.Sprintf("%.0fM", v)
+	}
+	v := float64(n) / 1_000_000_000
+	return fmt.Sprintf("%.1fB", v)
+}
+
+// jsonlUserEntry is used for parsing user-type JSONL lines.
+type jsonlUserEntry struct {
+	Type      string `json:"type"`
+	GitBranch string `json:"gitBranch"`
+	Message   *struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+// ParseSessionTopic reads the FIRST user message from the JSONL file.
+// Returns (truncated 60 chars, full text).
+// Only reads the first ~100 lines to avoid scanning the whole file.
+func ParseSessionTopic(jsonlPath string) (topic string, topicFull string) {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024) // 256KB line buffer
+
+	lineCount := 0
+	for scanner.Scan() {
+		lineCount++
+		if lineCount > 100 {
+			break
+		}
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"type":"user"`)) {
+			continue
+		}
+
+		var entry jsonlUserEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Type != "user" || entry.Message == nil || entry.Message.Role != "user" {
+			continue
+		}
+
+		topicFull = extractTextContent(entry.Message.Content)
+		if topicFull == "" {
+			continue
+		}
+
+		topic = truncateString(topicFull, 60)
+		return topic, topicFull
+	}
+	return "", ""
+}
+
+// ParseGitBranch extracts the gitBranch field from the first user message.
+func ParseGitBranch(jsonlPath string) string {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+
+	lineCount := 0
+	for scanner.Scan() {
+		lineCount++
+		if lineCount > 100 {
+			break
+		}
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"type":"user"`)) {
+			continue
+		}
+
+		var entry jsonlUserEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Type != "user" {
+			continue
+		}
+		if entry.GitBranch != "" {
+			return entry.GitBranch
+		}
+	}
+	return ""
+}
+
+// ParseMessageCount counts occurrences of "type":"user" in the JSONL file.
+// Uses byte-level scanning for efficiency — does NOT parse full JSON per line.
+func ParseMessageCount(jsonlPath string) int {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	count := 0
+	marker := []byte(`"type":"user"`)
+
+	buf := make([]byte, 64*1024) // 64KB chunks
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			count += bytes.Count(buf[:n], marker)
+		}
+		if err != nil {
+			break
+		}
+	}
+	return count
+}
+
+// ParseSessionTokens sums ALL message.usage fields across the JSONL file.
+func ParseSessionTokens(jsonlPath string) TokenUsage {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return TokenUsage{}
+	}
+	defer f.Close()
+
+	var usage TokenUsage
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB line buffer
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Fast check: skip lines without usage data.
+		if !bytes.Contains(line, []byte(`"usage"`)) {
+			continue
+		}
+
+		var entry jsonlEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Message == nil || entry.Message.Usage == nil {
+			continue
+		}
+		usage.InputTokens += entry.Message.Usage.InputTokens
+		usage.OutputTokens += entry.Message.Usage.OutputTokens
+		usage.CacheCreationTokens += entry.Message.Usage.CacheCreationInputTokens
+		usage.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
+	}
+	return usage
+}
+
+// ParseAgentModel reads the first assistant message from JSONL, extracts
+// message.model, and returns (shortName, fullName).
+// Short name mapping: claude-sonnet-4-* → "sonnet", claude-haiku-4-5-* → "haiku",
+// claude-opus-4-* → "opus".
+func ParseAgentModel(jsonlPath string) (short string, full string) {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"assistant"`)) {
+			continue
+		}
+
+		var entry jsonlEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Message == nil || entry.Message.Role != "assistant" || entry.Message.Model == "" {
+			continue
+		}
+		full = entry.Message.Model
+		short = modelShortName(full)
+		return short, full
+	}
+	return "", ""
+}
+
+// ParseAgentToolCallSummary counts tool_use entries by name from the JSONL.
+// Returns (toolName → count, totalCount).
+func ParseAgentToolCallSummary(jsonlPath string) (map[string]int, int) {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return nil, 0
+	}
+	defer f.Close()
+
+	toolCounts := make(map[string]int)
+	total := 0
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"tool_use"`)) {
+			continue
+		}
+
+		var entry jsonlEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Message == nil || entry.Message.Role != "assistant" || len(entry.Message.Content) == 0 {
+			continue
+		}
+
+		var blocks []toolUseContent
+		if err := json.Unmarshal(entry.Message.Content, &blocks); err != nil {
+			continue
+		}
+		for _, b := range blocks {
+			if b.Type == "tool_use" && b.Name != "" {
+				toolCounts[b.Name]++
+				total++
+			}
+		}
+	}
+	if len(toolCounts) == 0 {
+		return nil, 0
+	}
+	return toolCounts, total
+}
+
+// ParseAgentFinalOutput reads the last assistant text message from JSONL.
+// Returns the last 200 chars of the text content.
+func ParseAgentFinalOutput(jsonlPath string) string {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	// Read the entire file to find the last assistant text.
+	// For large files, read last 64KB.
+	info, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+
+	var data []byte
+	if info.Size() > 64*1024 {
+		if _, err := f.Seek(-64*1024, io.SeekEnd); err != nil {
+			return ""
+		}
+		data, err = io.ReadAll(f)
+		if err != nil {
+			return ""
+		}
+	} else {
+		data, err = io.ReadAll(f)
+		if err != nil {
+			return ""
+		}
+	}
+
+	lines := bytes.Split(data, []byte("\n"))
+	// Walk backwards to find the last assistant message with text content.
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+		if !bytes.Contains(line, []byte(`"assistant"`)) {
+			continue
+		}
+
+		var entry jsonlEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Message == nil || entry.Message.Role != "assistant" || len(entry.Message.Content) == 0 {
+			continue
+		}
+
+		text := extractAssistantText(entry.Message.Content)
+		if text == "" {
+			continue
+		}
+
+		if len(text) > 200 {
+			text = text[len(text)-200:]
+		}
+		return text
+	}
+	return ""
+}
+
+// extractTextContent extracts text from message.content, handling both
+// string content and array-of-blocks content.
+func extractTextContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Try as plain string first.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+
+	// Try as array of content blocks.
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, ""))
+	}
+	return ""
+}
+
+// extractAssistantText extracts text blocks from an assistant message's content.
+func extractAssistantText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Try as plain string first.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+
+	// Try as array of content blocks.
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, ""))
+	}
+	return ""
+}
+
+// modelShortName maps a full model name to a short display name.
+func modelShortName(full string) string {
+	switch {
+	case strings.HasPrefix(full, "claude-sonnet") || strings.Contains(full, "sonnet"):
+		return "sonnet"
+	case strings.HasPrefix(full, "claude-haiku") || strings.Contains(full, "haiku"):
+		return "haiku"
+	case strings.HasPrefix(full, "claude-opus") || strings.Contains(full, "opus"):
+		return "opus"
+	default:
+		return full
+	}
+}
+
+// truncateString truncates a string to maxLen chars, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
