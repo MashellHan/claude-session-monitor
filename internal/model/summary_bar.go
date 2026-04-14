@@ -52,7 +52,7 @@ func (sb *SummaryBar) View() string {
 		taskInfo = fmt.Sprintf(" │ %d tasks", s.TotalTasks)
 	}
 
-	helpHints := " │ ↑↓ nav │ enter expand │ tab panel │ q quit"
+	helpHints := " │ ↑↓ nav │ enter expand │ tab panel │ ? help │ q quit"
 
 	content := fmt.Sprintf(" %s │ %s%s%s%s",
 		sessInfo, agentInfo, tokenInfo, taskInfo, helpHints)

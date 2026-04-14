@@ -394,10 +394,22 @@ func ParseSessionTopic(jsonlPath string) (topic string, topicFull string) {
 			continue
 		}
 
+		// Sanitize: replace newlines/tabs with spaces, collapse whitespace.
+		topicFull = sanitizeOneLine(topicFull)
 		topic = truncateString(topicFull, 60)
 		return topic, topicFull
 	}
 	return "", ""
+}
+
+// sanitizeOneLine replaces newlines, tabs, and collapses whitespace into a single line.
+func sanitizeOneLine(s string) string {
+	s = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
+	// Collapse multiple spaces.
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	return strings.TrimSpace(s)
 }
 
 // ParseGitBranch extracts the gitBranch field from the first user message.
@@ -722,4 +734,120 @@ func truncateString(s string, maxLen int) string {
 		return string(runes[:maxLen])
 	}
 	return string(runes[:maxLen-3]) + "..."
+}
+
+// AgentJSONLInfo holds all info extracted from a single-pass parse of an agent JSONL.
+type AgentJSONLInfo struct {
+	Tokens          TokenUsage
+	Model           string // short name
+	ModelFull       string // full model string
+	RecentToolCalls []ToolCall
+	ToolCallMap     map[string]int
+	ToolCallTotal   int
+	FinalOutput     string
+}
+
+// ParseAgentJSONLFull does a single-pass read of an agent JSONL file and extracts
+// all useful information: tokens, model, tool calls, and final output.
+// For files > 2MB, only reads the last 512KB for tool calls/output but scans fully for tokens.
+func ParseAgentJSONLFull(path string) AgentJSONLInfo {
+	info := AgentJSONLInfo{
+		ToolCallMap: make(map[string]int),
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return info
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 512*1024), 512*1024)
+
+	var lastAssistantText string
+	var recentCalls []ToolCall
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		// Fast pre-check: skip lines that don't have useful data.
+		hasUsage := bytes.Contains(line, []byte(`"usage"`))
+		hasModel := bytes.Contains(line, []byte(`"model"`))
+		hasToolUse := bytes.Contains(line, []byte(`"tool_use"`))
+		hasAssistant := bytes.Contains(line, []byte(`"assistant"`))
+
+		if !hasUsage && !hasModel && !hasToolUse && !hasAssistant {
+			continue
+		}
+
+		// Parse for token usage.
+		if hasUsage {
+			var entry struct {
+				Message *struct {
+					Usage *struct {
+						InputTokens              int64 `json:"input_tokens"`
+						OutputTokens             int64 `json:"output_tokens"`
+						CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+						CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+					} `json:"usage"`
+					Model   string          `json:"model"`
+					Content json.RawMessage `json:"content"`
+					Role    string          `json:"role"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal(line, &entry); err == nil && entry.Message != nil {
+				// Extract tokens.
+				if entry.Message.Usage != nil {
+					info.Tokens.InputTokens += entry.Message.Usage.InputTokens
+					info.Tokens.OutputTokens += entry.Message.Usage.OutputTokens
+					info.Tokens.CacheCreationTokens += entry.Message.Usage.CacheCreationInputTokens
+					info.Tokens.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
+				}
+
+				// Extract model (first occurrence wins).
+				if info.ModelFull == "" && entry.Message.Model != "" {
+					info.ModelFull = entry.Message.Model
+					info.Model = modelShortName(entry.Message.Model)
+				}
+
+				// Extract tool calls from content.
+				if hasToolUse && entry.Message.Content != nil {
+					calls := extractToolCalls(entry.Message.Content)
+					for _, c := range calls {
+						info.ToolCallMap[c.Name]++
+						info.ToolCallTotal++
+					}
+					recentCalls = append(recentCalls, calls...)
+					// Keep only last 10 tool calls in memory.
+					if len(recentCalls) > 10 {
+						recentCalls = recentCalls[len(recentCalls)-10:]
+					}
+				}
+
+				// Track last assistant text for final output.
+				if entry.Message.Role == "assistant" && entry.Message.Content != nil {
+					text := extractAssistantText(entry.Message.Content)
+					if text != "" {
+						lastAssistantText = text
+					}
+				}
+			}
+		}
+	}
+
+	info.RecentToolCalls = recentCalls
+
+	// Final output: last 200 chars.
+	if len(lastAssistantText) > 200 {
+		runes := []rune(lastAssistantText)
+		if len(runes) > 200 {
+			info.FinalOutput = string(runes[len(runes)-200:])
+		} else {
+			info.FinalOutput = lastAssistantText
+		}
+	} else {
+		info.FinalOutput = lastAssistantText
+	}
+
+	return info
 }

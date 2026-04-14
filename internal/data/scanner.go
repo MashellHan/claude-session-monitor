@@ -184,6 +184,14 @@ func (s *Scanner) buildAgent(id, sessionID, agentsDir string) Agent {
 		JSONLPath: filepath.Join(agentsDir, "agent-"+id+".jsonl"),
 	}
 
+	// Skip compact agents — they are internal compaction artifacts.
+	if strings.HasPrefix(id, "compact-") {
+		agent.AgentType = "compact"
+		agent.Description = "(compaction)"
+		agent.Status = StatusDone
+		return agent
+	}
+
 	// Parse meta.json for type and description.
 	if meta, err := ParseAgentMeta(agent.MetaPath); err == nil {
 		agent.AgentType = meta.AgentType
@@ -193,24 +201,18 @@ func (s *Scanner) buildAgent(id, sessionID, agentsDir string) Agent {
 	// Determine agent status from JSONL mtime.
 	agent.Status = DetectAgentStatus(agent.JSONLPath)
 
-	// Parse JSONL tail for tokens, model, and tool calls.
-	if usage, model, calls, err := ParseJSONLTail(agent.JSONLPath, maxJSONLTailBytes); err == nil {
-		agent.Tokens = usage
-		agent.ModelFull = model
-		agent.Model = modelShortName(model)
-		agent.ToolCalls = calls
+	// Single-pass parse of agent JSONL for all data: tokens, model, tool calls, final output.
+	// This avoids opening the same file 5 times.
+	agentInfo := ParseAgentJSONLFull(agent.JSONLPath)
+	agent.Tokens = agentInfo.Tokens
+	if agentInfo.ModelFull != "" {
+		agent.Model = agentInfo.Model
+		agent.ModelFull = agentInfo.ModelFull
 	}
-
-	// v1.1: Parse full model info, tool call summary, and final output.
-	if shortModel, fullModel := ParseAgentModel(agent.JSONLPath); fullModel != "" {
-		agent.Model = shortModel
-		agent.ModelFull = fullModel
-	}
-	if toolMap, toolTotal := ParseAgentToolCallSummary(agent.JSONLPath); toolMap != nil {
-		agent.ToolCallMap = toolMap
-		agent.ToolCallTotal = toolTotal
-	}
-	agent.FinalOutput = ParseAgentFinalOutput(agent.JSONLPath)
+	agent.ToolCalls = agentInfo.RecentToolCalls
+	agent.ToolCallMap = agentInfo.ToolCallMap
+	agent.ToolCallTotal = agentInfo.ToolCallTotal
+	agent.FinalOutput = agentInfo.FinalOutput
 
 	// Approximate last active time from JSONL file mtime.
 	// Note: this is the time of the last JSONL write, not the agent's start time.

@@ -71,12 +71,32 @@ func NewApp(st *store.Store, scanner *data.Scanner, watcher *data.Watcher, claud
 	}
 }
 
-// Init implements tea.Model. Starts the tick timer and file watcher listener.
+// ScanCompleteMsg carries the result of an async full scan.
+type ScanCompleteMsg struct {
+	Result *data.ScanResult
+}
+
+// Init implements tea.Model. Starts the tick timer, file watcher, and initial async scan.
 func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		tickCmd(),
 		a.listenForFileChanges(),
+		a.asyncScan(), // Non-blocking initial data load.
 	)
+}
+
+// asyncScan runs FullScan in a goroutine and returns the result as a message.
+func (a App) asyncScan() tea.Cmd {
+	return func() tea.Msg {
+		if a.scanner == nil {
+			return ScanCompleteMsg{}
+		}
+		result, err := a.scanner.FullScan()
+		if err != nil {
+			return ScanCompleteMsg{}
+		}
+		return ScanCompleteMsg{Result: result}
+	}
 }
 
 // tickCmd returns a command that sends a TickMsg after the polling interval.
@@ -112,20 +132,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 		a.updateLayout()
-		a.refreshData()
+		return a, a.asyncScan()
+
+	case ScanCompleteMsg:
+		a.applyResult(msg.Result)
 		return a, nil
 
 	case TickMsg:
-		a.refreshData()
-		return a, tickCmd()
+		return a, tea.Batch(tickCmd(), a.asyncScan())
 
 	case data.FileChangeMsg:
-		a.refreshData()
-		return a, a.listenForFileChanges()
+		return a, tea.Batch(a.listenForFileChanges(), a.asyncScan())
 
 	case RefreshMsg:
-		a.refreshData()
-		return a, nil
+		return a, a.asyncScan()
 
 	case tea.KeyMsg:
 		// Global keys.
@@ -225,7 +245,45 @@ func (a *App) syncSelectedSession() {
 	a.taskList.SetTasks(tasks)
 }
 
-// refreshData performs a full rescan and updates all view data.
+// applyResult loads scan results into the store and updates all views.
+func (a *App) applyResult(result *data.ScanResult) {
+	if result == nil {
+		return
+	}
+	a.store.LoadScanResult(result)
+	a.lastRefresh = time.Now()
+
+	// Update session list.
+	sessions := a.store.Sessions()
+	if a.filterActive {
+		filtered := make([]data.Session, 0, len(sessions))
+		for _, s := range sessions {
+			if s.Alive {
+				filtered = append(filtered, s)
+			}
+		}
+		sessions = filtered
+	}
+	a.sessionList.SetSessions(sessions)
+
+	// Populate agent lookup on the session list for enriched rendering.
+	a.sessionList.ClearAgents()
+	for _, sess := range sessions {
+		agents := a.store.AgentsForSession(sess.SessionID)
+		if len(agents) > 0 {
+			a.sessionList.SetAgentsForSession(sess.SessionID, agents)
+		}
+	}
+
+	// Update agents and tasks for selected session.
+	a.syncSelectedSession()
+
+	// Update summary bar.
+	a.summaryBar.SetStats(a.store.Stats())
+}
+
+// refreshData performs a synchronous full rescan and updates all view data.
+// Used for manual refresh (r key).
 func (a *App) refreshData() {
 	if a.scanner == nil {
 		return

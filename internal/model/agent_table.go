@@ -7,6 +7,7 @@ import (
 
 	"github.com/MashellHan/claude-session-monitor/internal/data"
 	"github.com/MashellHan/claude-session-monitor/internal/ui"
+	"github.com/mattn/go-runewidth"
 )
 
 // AgentTable renders the agent table for the selected session.
@@ -106,11 +107,35 @@ func (at *AgentTable) View(focused bool) string {
 		return ui.MutedStyle.Render("  No agents found")
 	}
 
+	// Column widths for agent table.
+	const (
+		colIdx     = 4
+		colType    = 18
+		colStatus  = 10
+		colElapsed = 10
+		colModel   = 8
+		colTokens  = 8
+		colFixed   = colIdx + colType + colStatus + colElapsed + colModel + colTokens + 8
+	)
+	colDesc := at.width - colFixed
+	if colDesc < 20 {
+		colDesc = 20
+	}
+	if colDesc > 60 {
+		colDesc = 60
+	}
+
 	var b strings.Builder
 
-	// Header row with new columns: # │ Agent Type │ Status │ Elapsed │ Model │ Tokens │ Description
-	header := fmt.Sprintf("  %-3s %-18s %-10s %-9s %-7s %-7s %s",
-		"#", "Agent Type", "Status", "Elapsed", "Model", "Tokens", "Description")
+	// Header.
+	header := fmt.Sprintf("  %s│%s│%s│%s│%s│%s│%s",
+		padRight("#", colIdx),
+		padRight("Agent Type", colType),
+		padRight("Status", colStatus),
+		padRight("Elapsed", colElapsed),
+		padRight("Model", colModel),
+		padRight("Tokens", colTokens),
+		padRight("Description", colDesc))
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
@@ -118,37 +143,30 @@ func (at *AgentTable) View(focused bool) string {
 	for i, agent := range at.agents {
 		isSelected := i == at.cursor && focused
 
-		// Status with color.
+		// Status with color — rendered with ANSI, so we render it separately.
 		statusStr := formatAgentStatus(agent.Status)
 
-		// Model short name.
-		model := agent.Model
-		if len(model) > 6 {
-			model = model[:6]
-		}
-
-		// Tokens formatted.
+		// Prepare plain text cells.
+		idx := fmt.Sprintf("%d", i+1)
+		agentType := runewidth.Truncate(agent.AgentType, colType-1, "…")
+		model := runewidth.Truncate(agent.Model, colModel-1, "…")
 		tokens := agent.Tokens.Formatted()
-
-		// Full description — do NOT truncate.
-		desc := agent.Description
-
-		// Agent type.
-		agentType := agent.AgentType
-		if len(agentType) > 16 {
-			agentType = agentType[:13] + "..."
-		}
+		desc := runewidth.Truncate(agent.Description, colDesc-1, "…")
 
 		cursor := "  "
 		if isSelected {
 			cursor = ui.CursorStyle.Render("▸ ")
 		}
 
-		// Sequential index.
-		idx := fmt.Sprintf("%d", i+1)
-
-		row := fmt.Sprintf("%s%-3s %-18s %s %-9s %-7s %-7s %s",
-			cursor, idx, agentType, statusStr, agent.Elapsed, model, tokens, desc)
+		row := fmt.Sprintf("%s%s│%s│%s│%s│%s│%s│%s",
+			cursor,
+			padRight(idx, colIdx),
+			padRight(agentType, colType),
+			statusStr+strings.Repeat(" ", max(0, colStatus-runewidth.StringWidth(statusStr))),
+			padRight(agent.Elapsed, colElapsed),
+			padRight(model, colModel),
+			padRight(tokens, colTokens),
+			desc)
 
 		if isSelected {
 			row = ui.SelectedRowStyle.Render(row)
@@ -173,11 +191,18 @@ func (at *AgentTable) View(focused bool) string {
 	return result
 }
 
-// formatAgentStatus returns a styled status string with symbol.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// formatAgentStatus returns a styled status string with symbol, padded to 8 display columns.
 func formatAgentStatus(status data.AgentStatus) string {
 	symbol := status.Symbol()
 	label := status.String()
-	display := fmt.Sprintf("%-8s", symbol+" "+label)
+	display := symbol + " " + label
 
 	switch status {
 	case data.StatusRunning:

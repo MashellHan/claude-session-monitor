@@ -8,6 +8,7 @@ import (
 	"github.com/MashellHan/claude-session-monitor/internal/data"
 	"github.com/MashellHan/claude-session-monitor/internal/ui"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // SessionList renders the list of Claude sessions.
@@ -95,17 +96,59 @@ func (sl *SessionList) SelectedSession() (data.Session, bool) {
 	return data.Session{}, false
 }
 
+// padRight pads s to exactly width display columns using runewidth,
+// handling CJK characters correctly. If s exceeds width, it is truncated.
+func padRight(s string, width int) string {
+	w := runewidth.StringWidth(s)
+	if w >= width {
+		return runewidth.Truncate(s, width, "")
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+// truncateRune truncates s to maxWidth display columns, appending "…" if cut.
+func truncateRune(s string, maxWidth int) string {
+	if runewidth.StringWidth(s) <= maxWidth {
+		return s
+	}
+	return runewidth.Truncate(s, maxWidth-1, "…")
+}
+
 // View renders the session list with agent info and proper scroll offset.
 func (sl *SessionList) View(focused bool) string {
 	if len(sl.sessions) == 0 {
 		return ui.MutedStyle.Render("  No sessions found")
 	}
 
+	// Column widths — dynamically allocate Topic based on terminal width.
+	const (
+		colPID     = 7
+		colProject = 16
+		colBranch  = 9
+		colUptime  = 10
+		colTokens  = 8
+		colAgts    = 7
+		colFixed   = colPID + colProject + colBranch + colUptime + colTokens + colAgts + 6 // separators + cursor
+	)
+	colTopic := sl.width - colFixed - 4 // remaining space for topic
+	if colTopic < 20 {
+		colTopic = 20
+	}
+	if colTopic > 60 {
+		colTopic = 60
+	}
+
 	var b strings.Builder
 
-	// Header row.
-	header := fmt.Sprintf("  %-6s %-16s %-40s %-10s %-9s %-7s %-6s",
-		"PID", "Project", "Topic", "Branch", "Uptime", "Tokens", "Agts")
+	// Header row with fixed columns.
+	header := fmt.Sprintf("  %s│%s│%s│%s│%s│%s│%s",
+		padRight("PID", colPID),
+		padRight("Project", colProject),
+		padRight("Topic", colTopic),
+		padRight("Branch", colBranch),
+		padRight("Uptime", colUptime),
+		padRight("Tokens", colTokens),
+		padRight("Agts", colAgts))
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
@@ -120,59 +163,46 @@ func (sl *SessionList) View(focused bool) string {
 		sess := sl.sessions[i]
 		isSelected := i == sl.cursor && focused
 
-		// PID string.
+		// Prepare each cell.
 		pidStr := fmt.Sprintf("%d", sess.PID)
-
-		// Agent count for this session.
-		agents := sl.agentsBySession[sess.SessionID]
-		agentInfo := AgentCountSummary(agents)
-
-		// Truncate project name.
-		project := sess.Project
-		if len(project) > 14 {
-			project = project[:11] + "..."
-		}
-
-		// Topic — truncate based on available width.
-		topic := sess.Topic
-		maxTopicLen := 38
-		if sl.width > 140 {
-			maxTopicLen = 50
-		}
-		if len([]rune(topic)) > maxTopicLen {
-			runes := []rune(topic)
-			topic = string(runes[:maxTopicLen-3]) + "..."
-		}
-
-		// Branch.
-		branch := sess.GitBranch
-		if len(branch) > 8 {
-			branch = branch[:8]
-		}
-
-		// Token usage.
+		project := truncateRune(sess.Project, colProject-1)
+		topic := truncateRune(sess.Topic, colTopic-1)
+		branch := truncateRune(sess.GitBranch, colBranch-1)
 		tokens := sess.Tokens.Formatted()
 
-		// Recalculate uptime if StartTime is available.
 		uptime := sess.Uptime
 		if !sess.StartTime.IsZero() {
 			uptime = data.FormatUptime(time.Since(sess.StartTime))
 		}
 
+		agents := sl.agentsBySession[sess.SessionID]
+
+		// Build cursor prefix.
 		cursor := "  "
 		if isSelected {
 			cursor = ui.CursorStyle.Render("▸ ")
 		}
 
-		// Color PID based on alive status.
+		// Color PID.
 		if sess.Alive {
-			pidStr = ui.AliveStyle.Render(fmt.Sprintf("%-6s", pidStr))
+			pidStr = ui.AliveStyle.Render(padRight(pidStr, colPID))
 		} else {
-			pidStr = ui.DeadStyle.Render(fmt.Sprintf("%-6s", pidStr))
+			pidStr = ui.DeadStyle.Render(padRight(pidStr, colPID))
 		}
 
-		row := fmt.Sprintf("%s%s %-16s %-40s %-10s %-9s %-7s %s",
-			cursor, pidStr, project, topic, branch, uptime, tokens, agentInfo)
+		// Agent count — rendered with color, so pad the plain text first.
+		agentInfo := AgentCountSummary(agents)
+
+		// Build row with separators for column alignment.
+		row := fmt.Sprintf("%s%s│%s│%s│%s│%s│%s│%s",
+			cursor,
+			pidStr,
+			padRight(project, colProject),
+			padRight(topic, colTopic),
+			padRight(branch, colBranch),
+			padRight(uptime, colUptime),
+			padRight(tokens, colTokens),
+			agentInfo)
 
 		if isSelected {
 			row = ui.SelectedRowStyle.Render(row)
@@ -184,7 +214,7 @@ func (sl *SessionList) View(focused bool) string {
 		}
 	}
 
-	// Truncate to width if needed using ANSI-aware truncation.
+	// ANSI-safe width truncation.
 	result := b.String()
 	if sl.width > 0 {
 		truncStyle := lipgloss.NewStyle().MaxWidth(sl.width)
