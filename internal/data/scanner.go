@@ -185,10 +185,10 @@ func (s *Scanner) buildAgent(id, sessionID, agentsDir string) Agent {
 		agent.ToolCalls = calls
 	}
 
-	// Approximate start time and elapsed from JSONL file info.
+	// Approximate last active time from JSONL file mtime.
+	// Note: this is the time of the last JSONL write, not the agent's start time.
 	if info, err := os.Stat(agent.JSONLPath); err == nil {
-		// Use mtime to compute elapsed for running/idle agents.
-		agent.StartTime = info.ModTime()
+		agent.LastActiveTime = info.ModTime()
 		agent.Elapsed = FormatUptime(time.Since(info.ModTime()))
 	}
 

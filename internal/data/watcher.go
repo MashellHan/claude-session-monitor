@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -22,10 +23,11 @@ type WatchErrorMsg struct {
 // Watcher wraps fsnotify to watch Claude Code data directories and
 // send Bubble Tea messages on changes.
 type Watcher struct {
-	watcher  *fsnotify.Watcher
-	events   chan FileChangeMsg
-	errors   chan WatchErrorMsg
-	done     chan struct{}
+	watcher   *fsnotify.Watcher
+	events    chan FileChangeMsg
+	errors    chan WatchErrorMsg
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewWatcher creates a new filesystem watcher.
@@ -134,8 +136,8 @@ func (w *Watcher) Errors() <-chan WatchErrorMsg {
 	return w.errors
 }
 
-// Close shuts down the watcher.
+// Close shuts down the watcher. Safe to call multiple times.
 func (w *Watcher) Close() error {
-	close(w.done)
+	w.closeOnce.Do(func() { close(w.done) })
 	return w.watcher.Close()
 }

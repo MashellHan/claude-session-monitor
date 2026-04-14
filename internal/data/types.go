@@ -96,9 +96,8 @@ type TokenUsage struct {
 
 // ToolCall represents a single tool invocation extracted from JSONL.
 type ToolCall struct {
-	Timestamp time.Time
-	Name      string
-	Input     string // short summary of input
+	Name  string
+	Input string // short summary of input
 }
 
 // Agent represents a fully resolved subagent with computed fields.
@@ -111,10 +110,12 @@ type Agent struct {
 	Model       string      // extracted from JSONL
 	Tokens      TokenUsage  // aggregated from JSONL
 	ToolCalls   []ToolCall  // latest tool calls (from tail of JSONL)
-	Elapsed     string      // human-readable elapsed time
-	JSONLPath   string      // path to .jsonl file for mtime checks
-	MetaPath    string      // path to .meta.json
-	StartTime   time.Time   // approximated from first JSONL entry or mtime
+	Elapsed       string      // human-readable time since last activity
+	JSONLPath     string      // path to .jsonl file for mtime checks
+	MetaPath      string      // path to .meta.json
+	// LastActiveTime is the time of the last JSONL write (file mtime),
+	// not the actual agent start time. Used to compute Elapsed.
+	LastActiveTime time.Time
 }
 
 // ProjectEntry represents an entry from ~/.claude/homunculus/projects.json.

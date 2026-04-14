@@ -278,7 +278,7 @@ func ParseProjectsJSONBytes(raw []byte) (map[string]string, error) {
 		return simpleMap, nil
 	}
 
-	return result, nil
+	return nil, fmt.Errorf("unrecognized projects.json format")
 }
 
 // PathToHash converts a filesystem path to the path hash format used by
