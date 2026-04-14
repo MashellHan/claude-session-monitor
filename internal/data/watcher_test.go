@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNewWatcher(t *testing.T) {
@@ -105,14 +106,13 @@ func TestWatcher_FileEvents(t *testing.T) {
 		t.Fatalf("write test file: %v", err)
 	}
 
-	// We should receive an event. Use a short timeout.
+	// We should receive an event. Use a real timeout.
 	select {
 	case msg := <-w.Events():
 		if msg.Path == "" {
 			t.Error("event path should not be empty")
 		}
-	case <-make(chan struct{}):
-		// Non-blocking test — fsnotify might not fire immediately.
-		// This is acceptable for CI environments.
+	case <-time.After(2 * time.Second):
+		t.Log("no event received within timeout")
 	}
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/MashellHan/claude-session-monitor/internal/data"
 	"github.com/MashellHan/claude-session-monitor/internal/ui"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // AgentTable renders the agent table for the selected session.
@@ -239,22 +238,4 @@ func AgentSummary(agents []data.Agent) string {
 		return ui.StatusIdleStyle.Render(fmt.Sprintf("%d (%d idle)", total, idle))
 	}
 	return ui.MutedStyle.Render(fmt.Sprintf("%d done", total))
-}
-
-// FormatAgentStatusBadge returns a single status badge for the agent column
-// in the session list.
-func FormatAgentStatusBadge(agents []data.Agent) string {
-	running := 0
-	for _, a := range agents {
-		if a.Status == data.StatusRunning {
-			running++
-		}
-	}
-	total := len(agents)
-	if running > 0 {
-		return lipgloss.NewStyle().Foreground(ui.ColorSuccess).Render(
-			fmt.Sprintf("%d running", running))
-	}
-	return lipgloss.NewStyle().Foreground(ui.ColorMuted).Render(
-		fmt.Sprintf("%d total", total))
 }
