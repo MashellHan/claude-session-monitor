@@ -78,8 +78,10 @@ type jsonlEntry struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
-			InputTokens  int64 `json:"input_tokens"`
-			OutputTokens int64 `json:"output_tokens"`
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
 }
@@ -166,6 +168,8 @@ func parseJSONLBytes(data []byte) (TokenUsage, string, []ToolCall, error) {
 		if entry.Message.Usage != nil {
 			usage.InputTokens += entry.Message.Usage.InputTokens
 			usage.OutputTokens += entry.Message.Usage.OutputTokens
+			usage.CacheCreationTokens += entry.Message.Usage.CacheCreationInputTokens
+			usage.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
 		}
 
 		// Extract tool calls from assistant messages.

@@ -88,8 +88,10 @@ type AgentMeta struct {
 
 // TokenUsage aggregates token counts from JSONL entries.
 type TokenUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens          int64 `json:"input_tokens"`
+	OutputTokens         int64 `json:"output_tokens"`
+	CacheCreationTokens  int64 `json:"cache_creation_input_tokens"`
+	CacheReadTokens      int64 `json:"cache_read_input_tokens"`
 }
 
 // ToolCall represents a single tool invocation extracted from JSONL.
@@ -124,16 +126,18 @@ type ProjectEntry struct {
 
 // Stats holds aggregate metrics for the summary bar.
 type Stats struct {
-	TotalSessions   int
-	ActiveSessions  int
-	TotalAgents     int
-	RunningAgents   int
-	IdleAgents      int
-	DoneAgents      int
-	TotalTasks      int
-	CompletedTasks  int
-	InProgressTasks int
-	PendingTasks    int
-	TotalTokensIn   int64
-	TotalTokensOut  int64
+	TotalSessions      int
+	ActiveSessions     int
+	TotalAgents        int
+	RunningAgents      int
+	IdleAgents         int
+	DoneAgents         int
+	TotalTasks         int
+	CompletedTasks     int
+	InProgressTasks    int
+	PendingTasks       int
+	TotalTokensIn      int64
+	TotalTokensOut     int64
+	TotalCacheCreation int64
+	TotalCacheRead     int64
 }

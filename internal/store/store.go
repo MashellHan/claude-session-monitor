@@ -208,6 +208,8 @@ func (s *Store) Stats() data.Stats {
 			}
 			stats.TotalTokensIn += a.Tokens.InputTokens
 			stats.TotalTokensOut += a.Tokens.OutputTokens
+			stats.TotalCacheCreation += a.Tokens.CacheCreationTokens
+			stats.TotalCacheRead += a.Tokens.CacheReadTokens
 		}
 	}
 
