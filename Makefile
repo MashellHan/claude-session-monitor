@@ -10,7 +10,7 @@ run: build
 	./$(BINARY)
 
 test:
-	go test ./... -cover -count=1
+	go test -race ./... -cover -count=1
 
 clean:
 	rm -f $(BINARY)

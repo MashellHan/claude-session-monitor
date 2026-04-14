@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -219,9 +220,16 @@ func summarizeInput(raw json.RawMessage) string {
 		return ""
 	}
 
+	// Collect and sort keys for deterministic output.
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var parts []string
-	for k, v := range m {
-		s := fmt.Sprintf("%v", v)
+	for _, k := range keys {
+		s := fmt.Sprintf("%v", m[k])
 		if len(s) > 50 {
 			s = s[:47] + "..."
 		}
