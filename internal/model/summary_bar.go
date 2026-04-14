@@ -41,18 +41,22 @@ func (sb *SummaryBar) View() string {
 			s.TotalAgents, s.RunningAgents, s.IdleAgents, s.DoneAgents)
 	}
 
-	// Total tokens from all sessions.
+	// Total tokens from all sessions with In/Out breakdown.
 	tokenInfo := ""
 	if s.TotalTokensAll > 0 {
-		tokenInfo = fmt.Sprintf(" │ %s tokens", data.FormatTokenCount(s.TotalTokensAll))
+		tokenInfo = fmt.Sprintf(" │ %s tokens (in:%s out:%s)",
+			data.FormatTokenCount(s.TotalTokensAll),
+			data.FormatTokenCount(s.TotalTokensIn),
+			data.FormatTokenCount(s.TotalTokensOut))
 	}
 
 	taskInfo := ""
 	if s.TotalTasks > 0 {
-		taskInfo = fmt.Sprintf(" │ %d tasks", s.TotalTasks)
+		taskInfo = fmt.Sprintf(" │ %d tasks (%d✓ %d● %d○)",
+			s.TotalTasks, s.CompletedTasks, s.InProgressTasks, s.PendingTasks)
 	}
 
-	helpHints := " │ ↑↓ nav │ enter expand │ tab panel │ ? help │ q quit"
+	helpHints := " │ ↑↓ nav │ ⏎ expand │ ⇥ panel │ ? help │ q quit"
 
 	content := fmt.Sprintf(" %s │ %s%s%s%s",
 		sessInfo, agentInfo, tokenInfo, taskInfo, helpHints)

@@ -314,6 +314,22 @@ func FormatUptime(d time.Duration) string {
 	return fmt.Sprintf("%dh %02dm", hours, mins)
 }
 
+// FormatRelativeTime returns a compact relative time string like "2m ago", "3h ago", "1d ago".
+// Used for agent "last active" display where the value represents time since last file write.
+func FormatRelativeTime(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	days := int(d.Hours()) / 24
+	return fmt.Sprintf("%dd ago", days)
+}
+
 // FormatTokens formats a token count with K/M suffixes.
 // Deprecated: Use FormatTokenCount instead.
 func FormatTokens(n int64) string {

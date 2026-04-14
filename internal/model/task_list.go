@@ -75,25 +75,44 @@ func (tl *TaskList) View(focused bool) string {
 		return ui.MutedStyle.Render("  No tasks found")
 	}
 
+	const (
+		colID     = 5
+		colStatus = 9
+		colDeps   = 7
+	)
+	colSubject := tl.width - colID - colStatus - colDeps - 8
+	if colSubject < 20 {
+		colSubject = 20
+	}
+	if colSubject > 60 {
+		colSubject = 60
+	}
+
 	var b strings.Builder
 
 	// Header.
-	header := fmt.Sprintf("  %-4s %-8s %-44s %-6s",
-		"ID", "Status", "Subject", "Deps")
+	header := fmt.Sprintf("  %s│%s│%s│%s",
+		padRight("ID", colID),
+		padRight("Status", colStatus),
+		padRight("Subject", colSubject),
+		padRight("Deps", colDeps))
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
 	// Data rows.
-	for i, task := range tl.tasks {
+	visibleRows := tl.visibleRows()
+	endIdx := tl.offset + visibleRows
+	if endIdx > len(tl.tasks) {
+		endIdx = len(tl.tasks)
+	}
+
+	for i := tl.offset; i < endIdx; i++ {
+		task := tl.tasks[i]
 		isSelected := i == tl.cursor && focused
 
 		statusStr := formatTaskStatus(task.Status)
 
-		subject := task.Subject
-		if len(subject) > 42 {
-			subject = subject[:39] + "..."
-		}
-
+		subject := truncateRune(task.Subject, colSubject-1)
 		deps := formatDeps(task.BlockedBy)
 
 		cursor := "  "
@@ -101,15 +120,19 @@ func (tl *TaskList) View(focused bool) string {
 			cursor = ui.CursorStyle.Render("▸ ")
 		}
 
-		row := fmt.Sprintf("%s%-4s %s %-44s %-6s",
-			cursor, task.ID, statusStr, subject, deps)
+		row := fmt.Sprintf("%s%s│%s│%s│%s",
+			cursor,
+			padRight(task.ID, colID),
+			statusStr+strings.Repeat(" ", max(0, colStatus-statusStrWidth(task.Status))),
+			padRight(subject, colSubject),
+			padRight(deps, colDeps))
 
 		if isSelected {
 			row = ui.SelectedRowStyle.Render(row)
 		}
 
 		b.WriteString(row)
-		if i < len(tl.tasks)-1 {
+		if i < endIdx-1 {
 			b.WriteByte('\n')
 		}
 	}
@@ -121,13 +144,13 @@ func (tl *TaskList) View(focused bool) string {
 func formatTaskStatus(status data.TaskStatus) string {
 	switch status {
 	case data.TaskCompleted:
-		return ui.StatusDoneStyle.Render(fmt.Sprintf("%-8s", "✓ done"))
+		return ui.StatusDoneStyle.Render("✓ done")
 	case data.TaskInProgress:
-		return ui.StatusRunningStyle.Render(fmt.Sprintf("%-8s", "● work"))
+		return ui.StatusRunningStyle.Render("● work")
 	case data.TaskPending:
-		return ui.MutedStyle.Render(fmt.Sprintf("%-8s", "○ pend"))
+		return ui.MutedStyle.Render("○ pend")
 	default:
-		return ui.MutedStyle.Render(fmt.Sprintf("%-8s", "? "+string(status)))
+		return ui.MutedStyle.Render("? " + string(status))
 	}
 }
 
@@ -141,6 +164,20 @@ func formatDeps(blockedBy []string) string {
 		parts[i] = "←" + id
 	}
 	return strings.Join(parts, ",")
+}
+
+// statusStrWidth returns the display width of the formatted task status string (without ANSI).
+func statusStrWidth(status data.TaskStatus) int {
+	switch status {
+	case data.TaskCompleted:
+		return 6 // "✓ done"
+	case data.TaskInProgress:
+		return 6 // "● work"
+	case data.TaskPending:
+		return 6 // "○ pend"
+	default:
+		return 8
+	}
 }
 
 // TaskSummary returns a summary string for the task panel title.

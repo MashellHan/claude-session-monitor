@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,14 @@ func NewSessionList() SessionList {
 }
 
 // SetSessions updates the sessions to display.
+// Sorts: alive sessions first, then by start time descending (newest first).
 func (sl *SessionList) SetSessions(sessions []data.Session) {
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].Alive != sessions[j].Alive {
+			return sessions[i].Alive // alive first
+		}
+		return sessions[i].StartTime.After(sessions[j].StartTime)
+	})
 	sl.sessions = sessions
 	if sl.cursor >= len(sessions) && len(sessions) > 0 {
 		sl.cursor = len(sessions) - 1
@@ -122,13 +130,15 @@ func (sl *SessionList) View(focused bool) string {
 
 	// Column widths — dynamically allocate Topic based on terminal width.
 	const (
+		colStatus  = 4  // "●" / "○"
 		colPID     = 7
 		colProject = 16
 		colBranch  = 9
 		colUptime  = 10
+		colMsgs    = 5
 		colTokens  = 8
 		colAgts    = 7
-		colFixed   = colPID + colProject + colBranch + colUptime + colTokens + colAgts + 6 // separators + cursor
+		colFixed   = colStatus + colPID + colProject + colBranch + colUptime + colMsgs + colTokens + colAgts + 9 // separators + cursor
 	)
 	colTopic := sl.width - colFixed - 4 // remaining space for topic
 	if colTopic < 20 {
@@ -141,12 +151,14 @@ func (sl *SessionList) View(focused bool) string {
 	var b strings.Builder
 
 	// Header row with fixed columns.
-	header := fmt.Sprintf("  %s│%s│%s│%s│%s│%s│%s",
+	header := fmt.Sprintf("  %s│%s│%s│%s│%s│%s│%s│%s│%s",
+		padRight("", colStatus),
 		padRight("PID", colPID),
 		padRight("Project", colProject),
 		padRight("Topic", colTopic),
 		padRight("Branch", colBranch),
 		padRight("Uptime", colUptime),
+		padRight("Msgs", colMsgs),
 		padRight("Tokens", colTokens),
 		padRight("Agts", colAgts))
 	b.WriteString(ui.HeaderStyle.Render(header))
@@ -163,6 +175,14 @@ func (sl *SessionList) View(focused bool) string {
 		sess := sl.sessions[i]
 		isSelected := i == sl.cursor && focused
 
+		// Status indicator.
+		var statusStr string
+		if sess.Alive {
+			statusStr = ui.StatusRunningStyle.Render(padRight("●", colStatus))
+		} else {
+			statusStr = ui.DeadStyle.Render(padRight("○", colStatus))
+		}
+
 		// Prepare each cell.
 		pidStr := fmt.Sprintf("%d", sess.PID)
 		project := truncateRune(sess.Project, colProject-1)
@@ -175,6 +195,11 @@ func (sl *SessionList) View(focused bool) string {
 			uptime = data.FormatUptime(time.Since(sess.StartTime))
 		}
 
+		msgs := ""
+		if sess.MessageCount > 0 {
+			msgs = fmt.Sprintf("%d", sess.MessageCount)
+		}
+
 		agents := sl.agentsBySession[sess.SessionID]
 
 		// Build cursor prefix.
@@ -183,24 +208,19 @@ func (sl *SessionList) View(focused bool) string {
 			cursor = ui.CursorStyle.Render("▸ ")
 		}
 
-		// Color PID.
-		if sess.Alive {
-			pidStr = ui.AliveStyle.Render(padRight(pidStr, colPID))
-		} else {
-			pidStr = ui.DeadStyle.Render(padRight(pidStr, colPID))
-		}
-
 		// Agent count — rendered with color, so pad the plain text first.
 		agentInfo := AgentCountSummary(agents)
 
 		// Build row with separators for column alignment.
-		row := fmt.Sprintf("%s%s│%s│%s│%s│%s│%s│%s",
+		row := fmt.Sprintf("%s%s│%s│%s│%s│%s│%s│%s│%s│%s",
 			cursor,
-			pidStr,
+			statusStr,
+			padRight(pidStr, colPID),
 			padRight(project, colProject),
 			padRight(topic, colTopic),
 			padRight(branch, colBranch),
 			padRight(uptime, colUptime),
+			padRight(msgs, colMsgs),
 			padRight(tokens, colTokens),
 			agentInfo)
 

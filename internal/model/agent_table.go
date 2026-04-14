@@ -132,7 +132,7 @@ func (at *AgentTable) View(focused bool) string {
 		padRight("#", colIdx),
 		padRight("Agent Type", colType),
 		padRight("Status", colStatus),
-		padRight("Elapsed", colElapsed),
+		padRight("Last Act", colElapsed),
 		padRight("Model", colModel),
 		padRight("Tokens", colTokens),
 		padRight("Description", colDesc))
@@ -220,24 +220,34 @@ func formatAgentStatus(status data.AgentStatus) string {
 func renderAgentDetail(agent data.Agent, maxWidth int) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Agent ID:   %s\n", agent.ID))
+	b.WriteString(fmt.Sprintf("Agent ID:    %s\n", agent.ID))
+	b.WriteString(fmt.Sprintf("Type:        %s\n", agent.AgentType))
+	if agent.Description != "" {
+		b.WriteString(fmt.Sprintf("Description: %s\n", agent.Description))
+	}
 	if agent.ModelFull != "" {
-		b.WriteString(fmt.Sprintf("Model:      %s\n", agent.ModelFull))
+		b.WriteString(fmt.Sprintf("Model:       %s\n", agent.ModelFull))
 	} else if agent.Model != "" {
-		b.WriteString(fmt.Sprintf("Model:      %s\n", agent.Model))
+		b.WriteString(fmt.Sprintf("Model:       %s\n", agent.Model))
+	}
+	if !agent.LastActiveTime.IsZero() {
+		b.WriteString(fmt.Sprintf("Last Active: %s\n", agent.LastActiveTime.Format("2006-01-02 15:04:05")))
 	}
 
 	// Token breakdown: In: 6,234  Out: 1,988  Cache Read: 890  Cache Create: 0
-	b.WriteString(fmt.Sprintf("Tokens:     In: %s  Out: %s  Cache Read: %s  Cache Create: %s\n",
-		formatTokenComma(agent.Tokens.InputTokens),
-		formatTokenComma(agent.Tokens.OutputTokens),
-		formatTokenComma(agent.Tokens.CacheReadTokens),
-		formatTokenComma(agent.Tokens.CacheCreationTokens)))
+	if agent.Tokens.Total() > 0 {
+		b.WriteString(fmt.Sprintf("Tokens:      In: %s  Out: %s  Cache Read: %s  Cache Create: %s  (Total: %s)\n",
+			formatTokenComma(agent.Tokens.InputTokens),
+			formatTokenComma(agent.Tokens.OutputTokens),
+			formatTokenComma(agent.Tokens.CacheReadTokens),
+			formatTokenComma(agent.Tokens.CacheCreationTokens),
+			agent.Tokens.Formatted()))
+	}
 
 	// Tool call summary: 12 total (Grep: 4, Read: 3, Glob: 3, Bash: 2)
 	if agent.ToolCallTotal > 0 && agent.ToolCallMap != nil {
 		summary := formatToolCallSummary(agent.ToolCallMap, agent.ToolCallTotal)
-		b.WriteString(fmt.Sprintf("Tool Calls: %s\n", summary))
+		b.WriteString(fmt.Sprintf("Tool Calls:  %s\n", summary))
 	}
 
 	if len(agent.ToolCalls) > 0 {
@@ -251,8 +261,8 @@ func renderAgentDetail(agent data.Agent, maxWidth int) string {
 			line := fmt.Sprintf("  → %s", tc.Name)
 			if tc.Input != "" {
 				inputStr := tc.Input
-				if len(inputStr) > 50 {
-					inputStr = inputStr[:47] + "..."
+				if len(inputStr) > 60 {
+					inputStr = inputStr[:57] + "..."
 				}
 				line += ": " + inputStr
 			}
@@ -262,7 +272,13 @@ func renderAgentDetail(agent data.Agent, maxWidth int) string {
 
 	// Final output.
 	if agent.FinalOutput != "" {
-		b.WriteString(fmt.Sprintf("\nFinal Output (last 200 chars):\n  \"%s\"\n", agent.FinalOutput))
+		output := agent.FinalOutput
+		// Sanitize for display.
+		output = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(output)
+		if len(output) > 200 {
+			output = output[:200]
+		}
+		b.WriteString(fmt.Sprintf("\nResult: \"%s\"\n", output))
 	}
 
 	detailWidth := maxWidth - 6

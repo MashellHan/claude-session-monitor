@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -102,6 +103,11 @@ func (s *Scanner) FullScan() (*ScanResult, error) {
 			sess.Tokens = ParseSessionTokens(jsonlPath)
 		}
 
+		// If project name is still generic, try to extract from topic.
+		if isGenericProjectName(sess.Project) && sess.Topic != "" {
+			sess.Project = truncateProjectFromTopic(sess.Topic)
+		}
+
 		result.Sessions = append(result.Sessions, sess)
 
 		// Step 4: Load tasks and agents for all sessions (not just alive ones,
@@ -172,6 +178,16 @@ func (s *Scanner) scanAgents(sess Session) []Agent {
 		agent := s.buildAgent(id, sess.SessionID, agentsDir)
 		agents = append(agents, agent)
 	}
+
+	// Sort agents: running first, then idle, then done.
+	// Within same status, sort by last active time descending (most recent first).
+	sort.Slice(agents, func(i, j int) bool {
+		if agents[i].Status != agents[j].Status {
+			return agents[i].Status < agents[j].Status // Running(1) < Idle(2) < Done(3)
+		}
+		return agents[i].LastActiveTime.After(agents[j].LastActiveTime)
+	})
+
 	return agents
 }
 
@@ -218,7 +234,7 @@ func (s *Scanner) buildAgent(id, sessionID, agentsDir string) Agent {
 	// Note: this is the time of the last JSONL write, not the agent's start time.
 	if info, err := os.Stat(agent.JSONLPath); err == nil {
 		agent.LastActiveTime = info.ModTime()
-		agent.Elapsed = FormatUptime(time.Since(info.ModTime()))
+		agent.Elapsed = FormatRelativeTime(time.Since(info.ModTime()))
 	}
 
 	return agent
@@ -259,13 +275,21 @@ func IsPIDAlive(pid int) bool {
 
 // resolveProjectName maps a CWD to a human-readable project name.
 // It first checks the homunculus projects.json map, then falls back to
-// the last path component.
+// the last meaningful path component (skipping generic names like "Tmp").
 func (s *Scanner) resolveProjectName(cwd string) string {
 	if name, ok := s.projectMap[cwd]; ok {
 		return name
 	}
-	// Fallback: use last path component.
-	return filepath.Base(cwd)
+	// Fallback: use last path component, but skip generic directory names.
+	base := filepath.Base(cwd)
+	if genericNames[base] {
+		// Try parent directory name instead.
+		parent := filepath.Base(filepath.Dir(cwd))
+		if parent != "" && parent != "." && parent != "/" && !genericNames[parent] {
+			return parent
+		}
+	}
+	return base
 }
 
 // WatchPaths returns the list of directories that should be watched
@@ -276,4 +300,66 @@ func (s *Scanner) WatchPaths() []string {
 		filepath.Join(s.claudeDir, "tasks"),
 		filepath.Join(s.claudeDir, "projects"),
 	}
+}
+
+// genericNames is a set of directory names that are too generic to use as project names.
+var genericNames = map[string]bool{
+	"Tmp": true, "tmp": true, "temp": true, "Temp": true,
+	"src": true, "projects": true, "Projects": true,
+	"code": true, "Code": true, "workspace": true, "Workspace": true,
+	"dev": true, "Dev": true, "work": true, "Work": true,
+	"home": true, "Home": true, "Desktop": true, "desktop": true,
+	"Documents": true, "documents": true,
+}
+
+// isGenericProjectName returns true if the name is too generic to be useful.
+func isGenericProjectName(name string) bool {
+	return genericNames[name]
+}
+
+// truncateProjectFromTopic extracts a short project identifier from the session topic.
+// Handles special cases like URLs (extracts repo name) and CJK text.
+func truncateProjectFromTopic(topic string) string {
+	// If topic is a URL, extract the repo/path name.
+	if strings.HasPrefix(topic, "http://") || strings.HasPrefix(topic, "https://") {
+		parts := strings.Split(topic, "/")
+		// Try to find a meaningful segment (last non-empty path segment).
+		for i := len(parts) - 1; i >= 3; i-- {
+			seg := strings.TrimSpace(parts[i])
+			if seg != "" && seg != "." {
+				if len(seg) > 14 {
+					return seg[:14]
+				}
+				return seg
+			}
+		}
+		// Fall back to hostname.
+		if len(parts) > 2 {
+			host := parts[2]
+			if len(host) > 14 {
+				return host[:14]
+			}
+			return host
+		}
+	}
+
+	// For regular text, use first 2-3 meaningful words.
+	words := strings.Fields(topic)
+	if len(words) == 0 {
+		return topic
+	}
+
+	// Skip common prefixes like "项目：", "请", "帮我" etc.
+	n := len(words)
+	if n > 3 {
+		n = 3
+	}
+	short := strings.Join(words[:n], " ")
+
+	// Truncate to 14 runes.
+	runes := []rune(short)
+	if len(runes) > 14 {
+		return string(runes[:14])
+	}
+	return short
 }

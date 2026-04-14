@@ -294,36 +294,7 @@ func (a *App) refreshData() {
 		return // Silently skip on error.
 	}
 
-	a.store.LoadScanResult(result)
-	a.lastRefresh = time.Now()
-
-	// Update session list.
-	sessions := a.store.Sessions()
-	if a.filterActive {
-		filtered := make([]data.Session, 0, len(sessions))
-		for _, s := range sessions {
-			if s.Alive {
-				filtered = append(filtered, s)
-			}
-		}
-		sessions = filtered
-	}
-	a.sessionList.SetSessions(sessions)
-
-	// Populate agent lookup on the session list for enriched rendering.
-	a.sessionList.ClearAgents()
-	for _, sess := range sessions {
-		agents := a.store.AgentsForSession(sess.SessionID)
-		if len(agents) > 0 {
-			a.sessionList.SetAgentsForSession(sess.SessionID, agents)
-		}
-	}
-
-	// Update agents and tasks for selected session.
-	a.syncSelectedSession()
-
-	// Update summary bar.
-	a.summaryBar.SetStats(a.store.Stats())
+	a.applyResult(result)
 }
 
 // updateLayout recalculates panel sizes based on terminal dimensions.
