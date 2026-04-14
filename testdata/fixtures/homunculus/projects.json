@@ -1,0 +1,4 @@
+[
+  {"name": "myproject", "path": "/Users/test/myproject", "gitRemote": "https://github.com/test/myproject.git"},
+  {"name": "otherproject", "path": "/Users/test/otherproject", "gitRemote": ""}
+]

@@ -278,11 +278,13 @@ func ParseProjectsJSONBytes(raw []byte) (map[string]string, error) {
 }
 
 // PathToHash converts a filesystem path to the path hash format used by
-// Claude Code in ~/.claude/projects/. Forward slashes are replaced with
-// dashes, and the result is prefixed with a dash.
-// Example: "/Users/foo/bar" → "-Users-foo-bar"
+// Claude Code in ~/.claude/projects/. Both forward slashes and dots are
+// replaced with dashes.
+// Example: "/Users/foo/.bar/baz" → "-Users-foo--bar-baz"
 func PathToHash(path string) string {
-	return strings.ReplaceAll(path, "/", "-")
+	r := strings.ReplaceAll(path, "/", "-")
+	r = strings.ReplaceAll(r, ".", "-")
+	return r
 }
 
 // FormatUptime returns a human-readable duration string like "2h 15m".

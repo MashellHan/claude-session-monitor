@@ -1,0 +1,9 @@
+{
+  "id": "2",
+  "subject": "Architecture design",
+  "description": "Design the system architecture",
+  "activeForm": "Designing architecture",
+  "status": "in_progress",
+  "blocks": [],
+  "blockedBy": ["1"]
+}

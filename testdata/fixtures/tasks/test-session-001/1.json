@@ -1,0 +1,9 @@
+{
+  "id": "1",
+  "subject": "Research data sources",
+  "description": "Investigate how Claude Code stores session data",
+  "activeForm": "Researching data sources",
+  "status": "completed",
+  "blocks": ["2"],
+  "blockedBy": []
+}

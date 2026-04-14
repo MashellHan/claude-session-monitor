@@ -1,0 +1,3 @@
+{"parentUuid":null,"isSidechain":true,"promptId":"p1","agentId":"abc123","type":"user","message":{"role":"user","content":"Explore the codebase"}}
+{"parentUuid":"p1","isSidechain":true,"agentId":"abc123","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","name":"Grep","input":{"pattern":"import","type":"ts"}},{"type":"tool_use","name":"Read","input":{"file_path":"/src/index.ts"}}],"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":1234,"output_tokens":567}}}
+{"parentUuid":"p2","isSidechain":true,"agentId":"abc123","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","name":"Glob","input":{"pattern":"**/*.test.ts"}}],"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":890,"output_tokens":345}}}
