@@ -698,32 +698,9 @@ func extractTextContent(raw json.RawMessage) string {
 }
 
 // extractAssistantText extracts text blocks from an assistant message's content.
+// Delegates to extractTextContent — the logic is identical.
 func extractAssistantText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-
-	// Try as plain string first.
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return strings.TrimSpace(s)
-	}
-
-	// Try as array of content blocks.
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var parts []string
-		for _, b := range blocks {
-			if b.Type == "text" && b.Text != "" {
-				parts = append(parts, b.Text)
-			}
-		}
-		return strings.TrimSpace(strings.Join(parts, ""))
-	}
-	return ""
+	return extractTextContent(raw)
 }
 
 // modelShortName maps a full model name to a short display name.

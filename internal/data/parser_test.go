@@ -1,6 +1,7 @@
 package data
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1079,5 +1080,122 @@ func TestParseAgentJSONLFull_MissingFile(t *testing.T) {
 	}
 	if info.Model != "" {
 		t.Errorf("missing file should have empty model, got %q", info.Model)
+	}
+}
+
+// --- v1.3 New Tests ---
+
+func TestExtractAssistantText_DelegatesToExtractTextContent(t *testing.T) {
+	// extractAssistantText should produce identical results to extractTextContent.
+	// Test with string content.
+	raw := json.RawMessage(`"hello world"`)
+	a := extractAssistantText(raw)
+	b := extractTextContent(raw)
+	if a != b {
+		t.Errorf("extractAssistantText(%q) = %q, extractTextContent = %q, should be identical", string(raw), a, b)
+	}
+
+	// Test with array content.
+	raw = json.RawMessage(`[{"type":"text","text":"block1"},{"type":"text","text":"block2"}]`)
+	a = extractAssistantText(raw)
+	b = extractTextContent(raw)
+	if a != b {
+		t.Errorf("extractAssistantText(%q) = %q, extractTextContent = %q, should be identical", string(raw), a, b)
+	}
+}
+
+func TestTruncateProjectFromTopic_EdgeCases(t *testing.T) {
+	tests := []struct {
+		topic string
+		want  string
+	}{
+		// URL with no path segments.
+		{"https://example.com", "example.com"},
+		// URL with trailing slash.
+		{"https://github.com/org/repo/", "repo"},
+		// Single word.
+		{"deploy", "deploy"},
+		// Four words — truncated to 3.
+		{"Build a REST API", "Build a REST"},
+		// Exactly 14 runes.
+		{"12345678901234", "12345678901234"},
+		// 15 runes — truncated.
+		{"123456789012345", "12345678901234"},
+	}
+
+	for _, tt := range tests {
+		got := truncateProjectFromTopic(tt.topic)
+		if got != tt.want {
+			t.Errorf("truncateProjectFromTopic(%q) = %q, want %q", tt.topic, got, tt.want)
+		}
+	}
+}
+
+func TestFormatTokenCount_Boundaries(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{1, "1"},
+		{999, "999"},
+		{1000, "1.0K"},
+		{9999, "10.0K"},
+		{10000, "10K"},
+		{999999, "1000K"},
+		{1000000, "1.0M"},
+		{9999999, "10.0M"},
+		{999999999, "1000M"},
+		{1000000000, "1.0B"},
+		{2500000000, "2.5B"},
+	}
+
+	for _, tt := range tests {
+		got := FormatTokenCount(tt.n)
+		if got != tt.want {
+			t.Errorf("FormatTokenCount(%d) = %q, want %q", tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestSanitizeOneLine_Complex(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Multiple newlines and tabs.
+		{"line1\n\n\nline2\t\tline3", "line1 line2 line3"},
+		// Carriage return + newline.
+		{"hello\r\nworld\r\n", "hello world"},
+		// Only whitespace.
+		{"   \t\n\r   ", ""},
+	}
+
+	for _, tt := range tests {
+		got := sanitizeOneLine(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeOneLine(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestModelShortName_Variants(t *testing.T) {
+	tests := []struct {
+		full string
+		want string
+	}{
+		{"claude-sonnet-4-20250514", "sonnet"},
+		{"claude-haiku-4-5-20251001", "haiku"},
+		{"claude-opus-4-20250514", "opus"},
+		{"gpt-4", "gpt-4"},                    // unknown model passes through
+		{"custom-sonnet-model", "sonnet"},      // contains "sonnet"
+		{"claude-haiku-3.5", "haiku"},          // older haiku
+	}
+
+	for _, tt := range tests {
+		got := modelShortName(tt.full)
+		if got != tt.want {
+			t.Errorf("modelShortName(%q) = %q, want %q", tt.full, got, tt.want)
+		}
 	}
 }

@@ -201,9 +201,11 @@ func (sl *SessionList) View(focused bool) string {
 		pidStr := fmt.Sprintf("%d", sess.PID)
 		project := truncateRune(sess.Project, colProject-1)
 		topic := truncateRune(sess.Topic, colTopic-1)
-		// If project was derived from topic, show indicator and avoid repetition.
+		// If project was derived from topic, show "~" prefix and suppress
+		// topic column to avoid showing the same text in both columns.
 		if sess.ProjectFromTopic {
 			project = "~" + truncateRune(sess.Project, colProject-2)
+			topic = "" // avoid duplicate display
 		}
 		branch := truncateRune(sess.GitBranch, colBranch-1)
 		tokens := sess.Tokens.Formatted()
@@ -260,6 +262,17 @@ func (sl *SessionList) View(focused bool) string {
 		}
 	}
 
+	// Scroll indicator.
+	if len(sl.sessions) > visibleRows {
+		scrollPct := 0
+		if len(sl.sessions)-visibleRows > 0 {
+			scrollPct = sl.offset * 100 / (len(sl.sessions) - visibleRows)
+		}
+		b.WriteByte('\n')
+		b.WriteString(ui.MutedStyle.Render(
+			fmt.Sprintf("  ↕ %d/%d (scroll %d%%)", sl.offset+1, len(sl.sessions), scrollPct)))
+	}
+
 	// ANSI-safe width truncation.
 	result := b.String()
 	if sl.width > 0 {
@@ -283,6 +296,9 @@ func renderSessionDetail(sess data.Session, agents []data.Agent, maxWidth int) s
 	b.WriteString(fmt.Sprintf("Session ID:  %s\n", sess.SessionID))
 	b.WriteString(fmt.Sprintf("PID:         %d (%s)\n", sess.PID, statusLabel(sess.Alive)))
 	b.WriteString(fmt.Sprintf("CWD:         %s\n", sess.CWD))
+	if sess.Kind != "" {
+		b.WriteString(fmt.Sprintf("Kind:        %s\n", sess.Kind))
+	}
 	if sess.Project != "" {
 		b.WriteString(fmt.Sprintf("Project:     %s\n", sess.Project))
 	}

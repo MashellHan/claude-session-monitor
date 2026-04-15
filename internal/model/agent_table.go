@@ -139,8 +139,15 @@ func (at *AgentTable) View(focused bool) string {
 	b.WriteString(ui.HeaderStyle.Render(header))
 	b.WriteByte('\n')
 
-	// Data rows.
-	for i, agent := range at.agents {
+	// Data rows — respect scroll offset.
+	visibleRows := at.visibleRows()
+	endIdx := at.offset + visibleRows
+	if endIdx > len(at.agents) {
+		endIdx = len(at.agents)
+	}
+
+	for i := at.offset; i < endIdx; i++ {
+		agent := at.agents[i]
 		isSelected := i == at.cursor && focused
 
 		// Status with color — rendered with ANSI, so we render it separately.
@@ -188,14 +195,17 @@ func (at *AgentTable) View(focused bool) string {
 		result = sl
 	}
 
-	return result
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
+	// Scroll indicator.
+	if len(at.agents) > visibleRows {
+		scrollPct := 0
+		if len(at.agents)-visibleRows > 0 {
+			scrollPct = at.offset * 100 / (len(at.agents) - visibleRows)
+		}
+		result += "\n" + ui.MutedStyle.Render(
+			fmt.Sprintf("  ↕ %d/%d agents (scroll %d%%)", at.offset+1, len(at.agents), scrollPct))
 	}
-	return b
+
+	return result
 }
 
 // formatAgentStatus returns a styled status string with symbol, padded to 8 display columns.
