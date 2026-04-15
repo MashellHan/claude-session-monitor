@@ -16,7 +16,7 @@ import (
 )
 
 // version is set at build time.
-var version = "1.4.0"
+var version = "1.5.0"
 
 func main() {
 	// CLI flags.

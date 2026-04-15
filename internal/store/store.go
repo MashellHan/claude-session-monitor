@@ -202,7 +202,12 @@ func (s *Store) Stats() data.Stats {
 	}
 
 	// If session-level tokens are 0, fall back to agent-level aggregation.
+	// Reset all counters first to avoid mixing session and agent sources.
 	if stats.TotalTokensAll == 0 {
+		stats.TotalTokensIn = 0
+		stats.TotalTokensOut = 0
+		stats.TotalCacheCreation = 0
+		stats.TotalCacheRead = 0
 		for _, agents := range s.agents {
 			for _, a := range agents {
 				stats.TotalTokensIn += a.Tokens.InputTokens

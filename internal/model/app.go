@@ -107,6 +107,8 @@ func tickCmd() tea.Cmd {
 }
 
 // listenForFileChanges returns a command that listens for watcher events.
+// Uses a timeout to prevent permanently blocking the Bubble Tea event loop
+// if the watcher stalls or is closed.
 func (a App) listenForFileChanges() tea.Cmd {
 	if a.watcher == nil {
 		return nil
@@ -117,6 +119,10 @@ func (a App) listenForFileChanges() tea.Cmd {
 			return msg
 		case errMsg := <-a.watcher.Errors():
 			_ = errMsg // Log in the future.
+			return RefreshMsg{}
+		case <-time.After(30 * time.Second):
+			// Re-arm the listener even if no events arrive, to prevent
+			// the watcher goroutine from blocking forever.
 			return RefreshMsg{}
 		}
 	}
@@ -158,13 +164,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, keys.Refresh):
-			a.refreshData()
-			return a, nil
+			return a, a.asyncScan() // Non-blocking refresh instead of synchronous scan.
 
 		case key.Matches(msg, keys.Filter):
 			a.filterActive = !a.filterActive
-			a.refreshData()
-			return a, nil
+			return a, a.asyncScan() // Non-blocking refresh.
 
 		case key.Matches(msg, keys.Tab):
 			a.activePanel = (a.activePanel + 1) % 3
@@ -295,21 +299,6 @@ func (a *App) applyResult(result *data.ScanResult) {
 
 	// Update summary bar.
 	a.summaryBar.SetStats(a.store.Stats())
-}
-
-// refreshData performs a synchronous full rescan and updates all view data.
-// Used for manual refresh (r key).
-func (a *App) refreshData() {
-	if a.scanner == nil {
-		return
-	}
-
-	result, err := a.scanner.FullScan()
-	if err != nil {
-		return // Silently skip on error.
-	}
-
-	a.applyResult(result)
 }
 
 // updateLayout recalculates panel sizes based on terminal dimensions.

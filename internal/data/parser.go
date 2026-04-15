@@ -419,13 +419,10 @@ func ParseSessionTopic(jsonlPath string) (topic string, topicFull string) {
 }
 
 // sanitizeOneLine replaces newlines, tabs, and collapses whitespace into a single line.
+// Uses strings.Fields to avoid quadratic behavior on long whitespace runs.
 func sanitizeOneLine(s string) string {
 	s = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
-	// Collapse multiple spaces.
-	for strings.Contains(s, "  ") {
-		s = strings.ReplaceAll(s, "  ", " ")
-	}
-	return strings.TrimSpace(s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // ParseGitBranch extracts the gitBranch field from the first user message.
@@ -773,57 +770,58 @@ func ParseAgentJSONLFull(path string) AgentJSONLInfo {
 			continue
 		}
 
-		// Parse for token usage.
-		if hasUsage {
-			var entry struct {
-				Message *struct {
-					Usage *struct {
-						InputTokens              int64 `json:"input_tokens"`
-						OutputTokens             int64 `json:"output_tokens"`
-						CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-						CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
-					} `json:"usage"`
-					Model   string          `json:"model"`
-					Content json.RawMessage `json:"content"`
-					Role    string          `json:"role"`
-				} `json:"message"`
+		// Parse any line that passed the pre-filter.
+		// Use a single struct that covers all fields we need.
+		var entry struct {
+			Message *struct {
+				Usage *struct {
+					InputTokens              int64 `json:"input_tokens"`
+					OutputTokens             int64 `json:"output_tokens"`
+					CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+					CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+				} `json:"usage"`
+				Model   string          `json:"model"`
+				Content json.RawMessage `json:"content"`
+				Role    string          `json:"role"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(line, &entry); err != nil || entry.Message == nil {
+			continue
+		}
+
+		// Extract tokens.
+		if entry.Message.Usage != nil {
+			info.Tokens.InputTokens += entry.Message.Usage.InputTokens
+			info.Tokens.OutputTokens += entry.Message.Usage.OutputTokens
+			info.Tokens.CacheCreationTokens += entry.Message.Usage.CacheCreationInputTokens
+			info.Tokens.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
+		}
+
+		// Extract model (first occurrence wins).
+		if info.ModelFull == "" && entry.Message.Model != "" {
+			info.ModelFull = entry.Message.Model
+			info.Model = modelShortName(entry.Message.Model)
+		}
+
+		// Extract tool calls from content.
+		if hasToolUse && entry.Message.Content != nil {
+			calls := extractToolCalls(entry.Message.Content)
+			for _, c := range calls {
+				info.ToolCallMap[c.Name]++
+				info.ToolCallTotal++
 			}
-			if err := json.Unmarshal(line, &entry); err == nil && entry.Message != nil {
-				// Extract tokens.
-				if entry.Message.Usage != nil {
-					info.Tokens.InputTokens += entry.Message.Usage.InputTokens
-					info.Tokens.OutputTokens += entry.Message.Usage.OutputTokens
-					info.Tokens.CacheCreationTokens += entry.Message.Usage.CacheCreationInputTokens
-					info.Tokens.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
-				}
+			recentCalls = append(recentCalls, calls...)
+			// Keep only last 10 tool calls in memory.
+			if len(recentCalls) > 10 {
+				recentCalls = recentCalls[len(recentCalls)-10:]
+			}
+		}
 
-				// Extract model (first occurrence wins).
-				if info.ModelFull == "" && entry.Message.Model != "" {
-					info.ModelFull = entry.Message.Model
-					info.Model = modelShortName(entry.Message.Model)
-				}
-
-				// Extract tool calls from content.
-				if hasToolUse && entry.Message.Content != nil {
-					calls := extractToolCalls(entry.Message.Content)
-					for _, c := range calls {
-						info.ToolCallMap[c.Name]++
-						info.ToolCallTotal++
-					}
-					recentCalls = append(recentCalls, calls...)
-					// Keep only last 10 tool calls in memory.
-					if len(recentCalls) > 10 {
-						recentCalls = recentCalls[len(recentCalls)-10:]
-					}
-				}
-
-				// Track last assistant text for final output.
-				if entry.Message.Role == "assistant" && entry.Message.Content != nil {
-					text := extractAssistantText(entry.Message.Content)
-					if text != "" {
-						lastAssistantText = text
-					}
-				}
+		// Track last assistant text for final output.
+		if entry.Message.Role == "assistant" && entry.Message.Content != nil {
+			text := extractAssistantText(entry.Message.Content)
+			if text != "" {
+				lastAssistantText = text
 			}
 		}
 	}
