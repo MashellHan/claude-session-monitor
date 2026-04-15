@@ -121,8 +121,8 @@ func (at *AgentTable) View(focused bool) string {
 	if colDesc < 20 {
 		colDesc = 20
 	}
-	if colDesc > 60 {
-		colDesc = 60
+	if colDesc > 100 {
+		colDesc = 100
 	}
 
 	var b strings.Builder
@@ -290,6 +290,8 @@ func renderAgentDetail(agent data.Agent, maxWidth int) string {
 		}
 		b.WriteString(fmt.Sprintf("\nResult: \"%s\"\n", output))
 	}
+
+	b.WriteString("\n⏎ Enter to collapse")
 
 	detailWidth := maxWidth - 6
 	if detailWidth < 40 {

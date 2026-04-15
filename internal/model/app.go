@@ -303,12 +303,12 @@ func (a *App) applyResult(result *data.ScanResult) {
 
 // updateLayout recalculates panel sizes based on terminal dimensions.
 func (a *App) updateLayout() {
-	// Reserve space for title (2 lines), summary bar (1 line), and borders.
-	availHeight := a.height - 4
+	// Reserve space for title (2 lines), summary bar (1 line), panel separators (2 lines), borders.
+	availHeight := a.height - 6
 
-	// Split available height: sessions 30%, agents 35%, tasks 25%, summary 10%.
-	sessionH := availHeight * 30 / 100
-	agentH := availHeight * 35 / 100
+	// Split available height: sessions 40%, agents 30%, tasks 30%.
+	sessionH := availHeight * 40 / 100
+	agentH := availHeight * 30 / 100
 	taskH := availHeight - sessionH - agentH
 
 	if sessionH < 4 {
@@ -362,6 +362,9 @@ func (a App) View() string {
 	sessionView := a.sessionList.View(a.activePanel == PanelSessions)
 	sections = append(sections, sessionView)
 
+	// Visual separator between sessions and agents.
+	sections = append(sections, "")
+
 	// Agents panel.
 	sess, hasSelected := a.sessionList.SelectedSession()
 	agentTitle := ""
@@ -380,6 +383,9 @@ func (a App) View() string {
 	}
 	sections = append(sections, agentTitle)
 	sections = append(sections, a.agentTable.View(a.activePanel == PanelAgents))
+
+	// Visual separator between agents and tasks.
+	sections = append(sections, "")
 
 	// Tasks panel.
 	if hasSelected {
