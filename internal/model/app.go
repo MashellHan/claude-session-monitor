@@ -170,6 +170,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.activePanel = (a.activePanel + 1) % 3
 			return a, nil
 
+		case key.Matches(msg, keys.ShiftTab):
+			a.activePanel = (a.activePanel + 2) % 3 // -1 mod 3
+			return a, nil
+
+		case key.Matches(msg, keys.Right):
+			a.activePanel = (a.activePanel + 1) % 3
+			return a, nil
+
+		case key.Matches(msg, keys.Left):
+			a.activePanel = (a.activePanel + 2) % 3
+			return a, nil
+
 		case key.Matches(msg, keys.Panel1):
 			a.activePanel = PanelSessions
 			return a, nil
@@ -193,7 +205,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, keys.Enter):
-			if a.activePanel == PanelAgents {
+			switch a.activePanel {
+			case PanelSessions:
+				a.sessionList.ToggleDetail()
+			case PanelAgents:
 				a.agentTable.ToggleDetail()
 			}
 			return a, nil

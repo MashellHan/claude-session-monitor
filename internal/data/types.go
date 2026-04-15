@@ -63,6 +63,7 @@ type Session struct {
 	Alive      bool      `json:"-"` // true if PID is running
 	Uptime     string    `json:"-"` // computed human-readable uptime
 	Project    string    `json:"-"` // resolved project name
+	ProjectFromTopic bool `json:"-"` // true if project was derived from topic (to avoid duplicate display)
 	PathHash   string    `json:"-"` // CWD encoded as path hash
 	StartTime  time.Time `json:"-"` // parsed from StartedAt
 

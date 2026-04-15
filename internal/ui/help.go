@@ -9,9 +9,11 @@ func HelpView(width int) string {
   ────────────────────────────────
   ↑/k         Move cursor up
   ↓/j         Move cursor down
-  Enter       Toggle detail expansion
-  Tab         Switch panel focus
+  ←/h         Previous panel
+  →/l/Tab     Next panel
+  Shift+Tab   Previous panel
   1/2/3       Jump to panel
+  Enter       Toggle detail expansion
   r           Force refresh
   f           Toggle active-only filter
   q/Ctrl+C    Quit

@@ -104,8 +104,14 @@ func (s *Scanner) FullScan() (*ScanResult, error) {
 		}
 
 		// If project name is still generic, try to extract from topic.
+		// Mark it as topic-derived so the UI can avoid showing duplicates.
 		if isGenericProjectName(sess.Project) && sess.Topic != "" {
-			sess.Project = truncateProjectFromTopic(sess.Topic)
+			derived := truncateProjectFromTopic(sess.Topic)
+			// Only use topic-derived name if it's meaningfully different from generic.
+			if derived != "" && !isGenericProjectName(derived) {
+				sess.Project = derived
+				sess.ProjectFromTopic = true
+			}
 		}
 
 		result.Sessions = append(result.Sessions, sess)
@@ -176,6 +182,10 @@ func (s *Scanner) scanAgents(sess Session) []Agent {
 	var agents []Agent
 	for id := range agentIDs {
 		agent := s.buildAgent(id, sess.SessionID, agentsDir)
+		// Skip compact agents — they are internal compaction artifacts.
+		if agent.AgentType == "compact" {
+			continue
+		}
 		agents = append(agents, agent)
 	}
 
