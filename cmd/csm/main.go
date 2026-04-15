@@ -16,15 +16,16 @@ import (
 )
 
 // version is set at build time.
-var version = "1.0.0"
+var version = "1.3.0"
 
 func main() {
 	// CLI flags.
 	versionFlag := flag.Bool("version", false, "Print version and exit")
+	vFlag := flag.Bool("v", false, "Print version and exit (short)")
 	claudeDirFlag := flag.String("claude-dir", "", "Override Claude data directory (default: ~/.claude)")
 	flag.Parse()
 
-	if *versionFlag {
+	if *versionFlag || *vFlag {
 		fmt.Printf("csm v%s\n", version)
 		os.Exit(0)
 	}

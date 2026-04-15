@@ -330,9 +330,15 @@ func isGenericProjectName(name string) bool {
 // truncateProjectFromTopic extracts a short project identifier from the session topic.
 // Handles special cases like URLs (extracts repo name) and CJK text.
 func truncateProjectFromTopic(topic string) string {
-	// If topic is a URL, extract the repo/path name.
-	if strings.HasPrefix(topic, "http://") || strings.HasPrefix(topic, "https://") {
-		parts := strings.Split(topic, "/")
+	// If topic starts with a URL, extract the repo/path name.
+	words := strings.Fields(topic)
+	if len(words) == 0 {
+		return topic
+	}
+
+	firstWord := words[0]
+	if strings.HasPrefix(firstWord, "http://") || strings.HasPrefix(firstWord, "https://") {
+		parts := strings.Split(firstWord, "/")
 		// Try to find a meaningful segment (last non-empty path segment).
 		for i := len(parts) - 1; i >= 3; i-- {
 			seg := strings.TrimSpace(parts[i])
@@ -354,12 +360,6 @@ func truncateProjectFromTopic(topic string) string {
 	}
 
 	// For regular text, use first 2-3 meaningful words.
-	words := strings.Fields(topic)
-	if len(words) == 0 {
-		return topic
-	}
-
-	// Skip common prefixes like "项目：", "请", "帮我" etc.
 	n := len(words)
 	if n > 3 {
 		n = 3

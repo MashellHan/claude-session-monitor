@@ -958,3 +958,126 @@ func TestExtractTextContent(t *testing.T) {
 		t.Errorf("nil content = %q, want empty", got)
 	}
 }
+
+// --- v1.2 New Tests ---
+
+func TestFormatRelativeTime(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{5 * time.Second, "5s ago"},
+		{45 * time.Second, "45s ago"},
+		{90 * time.Second, "1m ago"},
+		{5 * time.Minute, "5m ago"},
+		{time.Hour + 30*time.Minute, "1h ago"},
+		{5 * time.Hour, "5h ago"},
+		{25 * time.Hour, "1d ago"},
+		{72 * time.Hour, "3d ago"},
+	}
+
+	for _, tt := range tests {
+		got := FormatRelativeTime(tt.d)
+		if got != tt.want {
+			t.Errorf("FormatRelativeTime(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
+
+func TestIsGenericProjectName(t *testing.T) {
+	generics := []string{"Tmp", "tmp", "temp", "Temp", "src", "projects", "Projects",
+		"code", "Code", "workspace", "Workspace", "dev", "Dev", "Desktop", "Documents"}
+	for _, name := range generics {
+		if !isGenericProjectName(name) {
+			t.Errorf("isGenericProjectName(%q) = false, want true", name)
+		}
+	}
+
+	specifics := []string{"myproject", "claude-monitor", "api-server", "frontend"}
+	for _, name := range specifics {
+		if isGenericProjectName(name) {
+			t.Errorf("isGenericProjectName(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestTruncateProjectFromTopic(t *testing.T) {
+	tests := []struct {
+		topic string
+		want  string
+	}{
+		// URL extraction
+		{"https://github.com/org/my-repo something", "my-repo"},
+		{"https://github.com/org/repo", "repo"},
+		// Regular text — first 3 words
+		{"Build a REST API server", "Build a REST"},
+		// CJK text — truncated to 14 runes
+		{"分析当前项目下面的所有文件，给出建议", "分析当前项目下面的所有文件，"},
+		// Short topic
+		{"hi", "hi"},
+		// Empty
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := truncateProjectFromTopic(tt.topic)
+		if got != tt.want {
+			t.Errorf("truncateProjectFromTopic(%q) = %q, want %q", tt.topic, got, tt.want)
+		}
+	}
+}
+
+func TestSanitizeOneLine(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello\nworld", "hello world"},
+		{"hello\r\nworld", "hello world"},
+		{"hello\t\tworld", "hello world"},
+		{"  hello   world  ", "hello world"},
+		{"normal text", "normal text"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := sanitizeOneLine(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeOneLine(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseAgentJSONLFull(t *testing.T) {
+	dir := fixtureDir(t)
+	jsonlPath := filepath.Join(dir, "projects", "-Users-test-myproject",
+		"test-session-001", "subagents", "agent-abc123.jsonl")
+
+	info := ParseAgentJSONLFull(jsonlPath)
+
+	if info.Tokens.InputTokens != 2124 {
+		t.Errorf("InputTokens = %d, want 2124", info.Tokens.InputTokens)
+	}
+	if info.Model != "haiku" {
+		t.Errorf("Model = %q, want haiku", info.Model)
+	}
+	if info.ModelFull != "claude-haiku-4-5-20251001" {
+		t.Errorf("ModelFull = %q, want claude-haiku-4-5-20251001", info.ModelFull)
+	}
+	if info.ToolCallTotal != 3 {
+		t.Errorf("ToolCallTotal = %d, want 3", info.ToolCallTotal)
+	}
+	if info.ToolCallMap["Grep"] != 1 {
+		t.Errorf("Grep count = %d, want 1", info.ToolCallMap["Grep"])
+	}
+}
+
+func TestParseAgentJSONLFull_MissingFile(t *testing.T) {
+	info := ParseAgentJSONLFull("/nonexistent.jsonl")
+	if info.Tokens.Total() != 0 {
+		t.Errorf("missing file should have zero tokens, got %d", info.Tokens.Total())
+	}
+	if info.Model != "" {
+		t.Errorf("missing file should have empty model, got %q", info.Model)
+	}
+}
